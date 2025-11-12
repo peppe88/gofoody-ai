@@ -10,6 +10,7 @@ from flask_cors import CORS
 # ===============================
 app = Flask(__name__)
 CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
+register_chat_routes(app)
 
 # Chiave segreta per le chiamate PHP (impostata anche su Render)
 API_KEY = os.getenv(
