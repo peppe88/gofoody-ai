@@ -1,5 +1,24 @@
 from datetime import datetime, timedelta
+import os
+from flask import request, jsonify
 
+# ===========================
+# CONFIG SICUREZZA
+# ===========================
+AI_KEY = os.getenv("AI_KEY", "F7a92c3B8e19xK4Lz0pW")  # stessa chiave del PHP
+
+def verifica_chiave():
+    """Verifica che la richiesta contenga la chiave API corretta."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    token = auth_header.split(" ")[1]
+    return token == AI_KEY
+
+
+# ===========================
+# FUNZIONE PRINCIPALE
+# ===========================
 def suggerisci_usi(dispensa):
     """
     Analizza una lista di alimenti e restituisce suggerimenti su cosa consumare prima.
@@ -45,3 +64,17 @@ def suggerisci_usi(dispensa):
         suggerimenti.append("✅ Tutti gli alimenti in dispensa sono in buono stato.")
 
     return suggerimenti
+
+
+# ===========================
+# ENDPOINT (opzionale Flask)
+# ===========================
+def endpoint_dispensa():
+    """Gestisce la chiamata /ai/dispensa"""
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    dispensa = data.get("dispensa", [])
+    risultati = suggerisci_usi(dispensa)
+    return jsonify({"alert": risultati})
