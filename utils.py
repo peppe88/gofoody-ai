@@ -1,19 +1,28 @@
 import random
 import os
+import re
 from flask import request, jsonify
 
 # ===========================
 # CONFIG SICUREZZA
 # ===========================
-AI_KEY = os.getenv("AI_KEY", "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi")  # stessa chiave PHP e Flask
+AI_KEY = os.getenv(
+    "AI_KEY",
+    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
+)  # stessa chiave PHP e Flask
+
 
 def verifica_chiave():
     """Verifica che la richiesta contenga la chiave API corretta."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
+        print("⚠️ Nessuna chiave AI trovata nell'header.")
         return False
     token = auth_header.split(" ")[1]
-    return token == AI_KEY
+    valido = token == AI_KEY
+    if not valido:
+        print("🚫 Chiave AI non valida.")
+    return valido
 
 
 # ===========================
@@ -23,6 +32,7 @@ def normalizza_testo(testo):
     """Pulisce e normalizza una stringa per confronti"""
     if not testo:
         return ""
+    testo = re.sub(r"[^a-zA-Z0-9àèéìòùç' ]+", "", testo)
     return str(testo).strip().lower()
 
 
@@ -68,28 +78,46 @@ def match_ricette(recipes_df, dispensa, allergie, preferenze):
     return suggerimenti
 
 
+# ===========================
+# GENERATORE PROCEDIMENTO "AI"
+# ===========================
 def genera_procedimento(titolo, ingredienti, dieta):
     """
-    Genera un procedimento testuale plausibile per la ricetta.
+    Genera un procedimento testuale realistico per la ricetta,
+    in base a ingredienti e dieta, con tono naturale e istruzioni AI-like.
     """
     if not ingredienti:
-        return "Nessun ingrediente specificato. Non è possibile generare il procedimento."
+        return "⚠️ Nessun ingrediente specificato. Non è possibile generare il procedimento."
 
-    intro = [
-        f"Iniziamo a preparare {titolo.lower()}, una ricetta {dieta.lower() if dieta else 'semplice'}!",
-        f"Oggi cuciniamo {titolo.lower()}, con un tocco sano e gustoso.",
-        f"Prepariamo insieme {titolo.lower()}, usando ingredienti freschi e genuini."
+    titolo = titolo.strip().capitalize()
+    dieta_txt = dieta.lower() if dieta else "personale"
+
+    intro_varianti = [
+        f"👩‍🍳 Oggi prepariamo *{titolo}*, una ricetta {dieta_txt} piena di sapore e semplicità.",
+        f"🍴 Benvenuto in cucina! Creiamo insieme *{titolo}*, perfetta per la tua dieta {dieta_txt}.",
+        f"🥗 Iniziamo con *{titolo}*, un piatto genuino e adatto a chi ama mangiare bene!"
+    ]
+    intro = random.choice(intro_varianti)
+
+    base_steps = [
+        f"1️⃣ Prepara con cura {', '.join(ingredienti[:3])}, assicurandoti che siano puliti e tagliati uniformemente.",
+        f"2️⃣ In una padella aggiungi un filo d’olio e soffriggi gli ingredienti principali per 2–3 minuti.",
+        f"3️⃣ Aggiungi gli altri ingredienti gradualmente, mescolando per ottenere un composto armonioso.",
+        f"4️⃣ Lascia cuocere per circa {random.randint(12, 25)} minuti, finché i profumi non riempiono la cucina.",
+        f"5️⃣ Aggiusta di sale, erbe e spezie secondo la tua dieta {dieta_txt}.",
+        f"6️⃣ Impiatta con cura e servi subito: *{titolo}* è pronto per essere gustato! 😋"
     ]
 
-    steps = [
-        f"1️⃣ Prepara {', '.join(ingredienti[:3])} tagliandoli in modo uniforme.",
-        f"2️⃣ Scalda una padella o pentola con un filo d’olio e aggiungi gli ingredienti principali.",
-        f"3️⃣ Cuoci a fuoco medio per {random.randint(10, 25)} minuti mescolando di tanto in tanto.",
-        f"4️⃣ Aggiungi sale, spezie e condimenti secondo la tua dieta {dieta.lower() if dieta else 'personale'}.",
-        f"5️⃣ Servi la tua {titolo.lower()} calda o fredda, a piacere. Buon appetito! 🍽️"
-    ]
+    bonus_step = ""
+    if "pasta" in ingredienti or "riso" in ingredienti:
+        bonus_step = "💡 Suggerimento: manteca con un filo d’olio a crudo per una consistenza vellutata."
+    elif "carne" in ingredienti or "pollo" in ingredienti:
+        bonus_step = "🔥 Per un gusto intenso, lascialo riposare un paio di minuti prima di servire."
+    elif "verdure" in ingredienti or "insalata" in titolo.lower():
+        bonus_step = "🌿 Aggiungi un tocco di limone o aceto balsamico per esaltarne la freschezza."
 
-    return "\n".join([random.choice(intro)] + steps)
+    procedimento_finale = "\n".join([intro] + base_steps + ([bonus_step] if bonus_step else []))
+    return procedimento_finale
 
 
 # ===========================
