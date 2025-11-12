@@ -4,6 +4,7 @@ import random
 import os
 from functools import wraps
 from flask_cors import CORS
+from chat import register_chat_routes
 
 # ===============================
 # CONFIGURAZIONE BASE
