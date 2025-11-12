@@ -6,45 +6,18 @@ from functools import wraps
 from flask_cors import CORS
 
 # ===============================
-# CONFIGURAZIONE BASE
-# ===============================
-app = Flask(__name__)
-CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
-register_chat_routes(app)
-
-# Chiave segreta per le chiamate PHP (impostata anche su Render)
-API_KEY = os.getenv(
-    "AI_KEY",
-    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
-)
-
-# ===============================
-# DECORATORE DI AUTENTICAZIONE
-# ===============================
-def require_api_key(f):
-    """Controlla la presenza di una chiave API valida"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
-            return jsonify({"error": "API key missing"}), 401
-        token = auth.replace("Bearer ", "").strip()
-        if token != API_KEY:
-            return jsonify({"error": "Invalid API key"}), 403
-        return f(*args, **kwargs)
-    return decorated
-
-
-# ===============================
-# MODULI LOCALI (con fallback)
+# MODULI LOCALI (IMPORT PRINCIPALI)
 # ===============================
 try:
     from nutrition_ai import calcola_bmi
-    from dispensa_ai import suggerisci_usi   
+    from dispensa_ai import suggerisci_usi
     from coach import genera_messaggio
     from utils import match_ricette, genera_procedimento
-    from chat import register_chat_routes
-except ImportError:
+    from chat import register_chat_routes  # ✅ Import corretto della chat
+except ImportError as e:
+    print("⚠️ Errore import:", e)
+
+    # fallback minimo in caso di errore
     def calcola_bmi(peso, altezza, eta, sesso):
         bmi = round(peso / ((altezza / 100) ** 2), 1) if altezza > 0 else 0
         categoria = (
@@ -75,9 +48,47 @@ except ImportError:
     def genera_procedimento(titolo, ingredienti, dieta):
         return f"1️⃣ Prepara {', '.join(ingredienti)}.\n2️⃣ Segui la dieta {dieta or 'standard'}.\n3️⃣ Servi e gusta {titolo}!"
 
+    register_chat_routes = None  # evita NameError
+
 
 # ===============================
-# ENDPOINT PUBBLICO: HEALTH CHECK
+# CONFIGURAZIONE BASE FLASK
+# ===============================
+app = Flask(__name__)
+CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
+
+# ✅ Registra le rotte Chat AI solo se la funzione è disponibile
+if register_chat_routes:
+    register_chat_routes(app)
+else:
+    print("⚠️ Chat AI non attiva: funzione register_chat_routes non trovata")
+
+# Chiave segreta per chiamate da PHP
+API_KEY = os.getenv(
+    "AI_KEY",
+    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
+)
+
+
+# ===============================
+# DECORATORE AUTENTICAZIONE
+# ===============================
+def require_api_key(f):
+    """Controlla la presenza di una chiave API valida"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "API key missing"}), 401
+        token = auth.replace("Bearer ", "").strip()
+        if token != API_KEY:
+            return jsonify({"error": "Invalid API key"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ===============================
+# ENDPOINT PUBBLICO HEALTH CHECK
 # ===============================
 @app.route("/health", methods=["GET"])
 def health():
@@ -87,7 +98,7 @@ def health():
         "message": "Flask is running correctly on Render",
         "routes": [
             "/ai/nutrizione", "/ai/ricetta",
-            "/ai/procedimento", "/ai/coach", "/ai/dispensa"
+            "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/chat"
         ]
     })
 
@@ -171,7 +182,8 @@ def ai_coach():
 
 
 # ===============================
-# ESECUZIONE LOCALE
+# AVVIO LOCALE
 # ===============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
