@@ -40,10 +40,10 @@ def require_api_key(f):
 # ===============================
 try:
     from nutrition_ai import calcola_bmi
-    from dispensa_ai import suggerisci_usi
-    from chat import register_chat_routes
+    from dispensa_ai import suggerisci_usi   
     from coach import genera_messaggio
     from utils import match_ricette, genera_procedimento
+    from chat import register_chat_routes
 except ImportError:
     def calcola_bmi(peso, altezza, eta, sesso):
         bmi = round(peso / ((altezza / 100) ** 2), 1) if altezza > 0 else 0
