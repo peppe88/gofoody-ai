@@ -1,9 +1,30 @@
 from datetime import datetime
+import os
+from flask import request, jsonify
 
+# ===========================
+# CONFIG SICUREZZA
+# ===========================
+AI_KEY = os.getenv("AI_KEY", "F7a92c3B8e19xK4Lz0pW")  # stessa chiave usata nel PHP
+
+def verifica_chiave():
+    """Verifica che la richiesta contenga la chiave API corretta."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    token = auth_header.split(" ")[1]
+    return token == AI_KEY
+
+
+# ===========================
+# FUNZIONE PRINCIPALE BMI
+# ===========================
 def calcola_bmi(peso, altezza, eta, sesso):
     """
     Calcola il BMI e restituisce una valutazione con suggerimento nutrizionale.
     """
+
+    # Validazione base
     if altezza <= 0 or peso <= 0:
         return {
             "bmi": None,
@@ -35,7 +56,7 @@ def calcola_bmi(peso, altezza, eta, sesso):
     # Personalizzazione in base all’età
     if eta and eta > 55 and bmi < 20:
         suggerimento += " Dopo i 55 anni, un BMI leggermente più alto può essere fisiologico."
-    if sesso.lower().startswith("f") and bmi < 18.5:
+    if sesso and sesso.lower().startswith("f") and bmi < 18.5:
         suggerimento += " Assicurati di avere un apporto proteico adeguato."
 
     risultato = {
@@ -45,3 +66,21 @@ def calcola_bmi(peso, altezza, eta, sesso):
         "suggerimento": suggerimento
     }
     return risultato
+
+
+# ===========================
+# ENDPOINT (opzionale se usato standalone)
+# ===========================
+def endpoint_bmi():
+    """Endpoint Flask che gestisce la chiamata /ai/nutrizione"""
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    peso = float(data.get("peso", 0))
+    altezza = float(data.get("altezza", 0))
+    eta = int(data.get("eta", 0))
+    sesso = data.get("sesso", "N/D")
+
+    risultato = calcola_bmi(peso, altezza, eta, sesso)
+    return jsonify(risultato)
