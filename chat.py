@@ -14,7 +14,7 @@ DB_CONFIG = {
     "host": "31.11.39.251",
     "user": "Sql1897455",
     "password": "Peppino_88",
-    "database": "Sql1897455_ai"
+    "database": "Sql1897455_3"
 }
 
 
