@@ -1,5 +1,24 @@
 import random
+import os
+from flask import request, jsonify
 
+# ===========================
+# CONFIG SICUREZZA
+# ===========================
+AI_KEY = os.getenv("AI_KEY", "F7a92c3B8e19xK4Lz0pW")  # stessa chiave PHP e Flask
+
+def verifica_chiave():
+    """Verifica che la richiesta contenga la chiave API corretta."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    token = auth_header.split(" ")[1]
+    return token == AI_KEY
+
+
+# ===========================
+# FUNZIONI DI UTILITÀ
+# ===========================
 def normalizza_testo(testo):
     """Pulisce e normalizza una stringa per confronti"""
     if not testo:
@@ -71,3 +90,33 @@ def genera_procedimento(titolo, ingredienti, dieta):
     ]
 
     return "\n".join([random.choice(intro)] + steps)
+
+
+# ===========================
+# ENDPOINT (opzionali Flask)
+# ===========================
+def endpoint_ricette(recipes_df):
+    """Gestisce la chiamata /ai/ricetta"""
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    dispensa = set(i.lower() for i in data.get("dispensa", []))
+    allergie = set(i.lower() for i in data.get("allergie", []))
+    preferenze = set(i.lower() for i in data.get("preferenze", []))
+
+    risultati = match_ricette(recipes_df, dispensa, allergie, preferenze)
+    return jsonify({"ricette": risultati[:5]})
+
+
+def endpoint_procedimento():
+    """Gestisce la chiamata /ai/procedimento"""
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    titolo = data.get("titolo", "Ricetta")
+    ingredienti = data.get("ingredienti", [])
+    dieta = data.get("dieta", "")
+    testo = genera_procedimento(titolo, ingredienti, dieta)
+    return jsonify({"procedimento": testo})
