@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import pandas as pd
-import random
 import os
 from functools import wraps
 from flask_cors import CORS
@@ -13,11 +12,12 @@ try:
     from dispensa_ai import suggerisci_usi
     from coach import genera_messaggio
     from utils import match_ricette, genera_procedimento
-    from chat import register_chat_routes  # ✅ Import corretto della chat
+    from chat import register_chat_routes  # ✅ Import chat AI
+    print("✅ Moduli AI caricati correttamente.")
 except ImportError as e:
-    print("⚠️ Errore import:", e)
+    print("⚠️ Errore import moduli AI:", e)
 
-    # fallback minimo in caso di errore
+    # fallback minimo (solo se Render non trova i moduli)
     def calcola_bmi(peso, altezza, eta, sesso):
         bmi = round(peso / ((altezza / 100) ** 2), 1) if altezza > 0 else 0
         categoria = (
@@ -29,26 +29,39 @@ except ImportError as e:
         return {
             "bmi": bmi,
             "categoria": categoria,
-            "suggerimento": "Mantieni uno stile di vita equilibrato"
+            "suggerimento": "Mantieni uno stile di vita equilibrato."
         }
 
     def suggerisci_usi(dispensa):
-        return [f"Usa presto {item}" for item in dispensa]
+        testo = []
+        for item in dispensa:
+            nome = item.get("nome", "Ingrediente").capitalize()
+            scadenza = item.get("scadenza", "")
+            testo.append(f"📦 Usa presto {nome}" + (f" (scade il {scadenza})" if scadenza else ""))
+        return testo
 
     def genera_messaggio(bmi, dieta, trend):
         return f"Il tuo BMI è {bmi}. Continua con la dieta {dieta or 'bilanciata'}!"
 
     def match_ricette(recipes, dispensa, allergie, preferenze):
-        base = [
-            {"titolo": "Pasta al pomodoro", "ingredienti": ["pasta", "pomodoro", "olio"], "tempo": "15", "descrizione": "Classico primo piatto italiano"},
-            {"titolo": "Insalata mista", "ingredienti": ["lattuga", "pomodoro", "olio"], "tempo": "10", "descrizione": "Fresca e leggera"}
+        return [
+            {"titolo": "Pasta al pomodoro", "ingredienti": ["pasta", "pomodoro", "olio"], "tempo": "15 min", "descrizione": "Classico primo piatto italiano."},
+            {"titolo": "Insalata mista", "ingredienti": ["lattuga", "pomodoro", "olio"], "tempo": "10 min", "descrizione": "Fresca e leggera."}
         ]
-        return base
 
     def genera_procedimento(titolo, ingredienti, dieta):
-        return f"1️⃣ Prepara {', '.join(ingredienti)}.\n2️⃣ Segui la dieta {dieta or 'standard'}.\n3️⃣ Servi e gusta {titolo}!"
+        if not ingredienti:
+            return "⚠️ Nessun ingrediente specificato per questa ricetta."
+        intro = f"🍽️ Oggi prepariamo *{titolo.lower()}*, un piatto {dieta.lower() if dieta else 'semplice'} e gustoso."
+        corpo = [
+            f"1️⃣ Prepara con cura {', '.join(ingredienti[:3])}.",
+            "2️⃣ Scalda una padella con un filo d’olio e aggiungi gli ingredienti principali.",
+            "3️⃣ Cuoci lentamente finché non ottieni una consistenza perfetta.",
+            f"4️⃣ Servi e gusta la tua {titolo.lower()} — sana e deliziosa!"
+        ]
+        return "\n".join([intro] + corpo)
 
-    register_chat_routes = None  # evita NameError
+    register_chat_routes = None  # evita NameError se non importata
 
 
 # ===============================
@@ -61,7 +74,7 @@ CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
 if register_chat_routes:
     register_chat_routes(app)
 else:
-    print("⚠️ Chat AI non attiva: funzione register_chat_routes non trovata")
+    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
 
 # Chiave segreta per chiamate da PHP
 API_KEY = os.getenv(
@@ -95,7 +108,7 @@ def health():
     """Controlla lo stato del servizio"""
     return jsonify({
         "status": "AI online ✅",
-        "message": "Flask is running correctly on Render",
+        "message": "Flask funziona correttamente su Render.",
         "routes": [
             "/ai/nutrizione", "/ai/ricetta",
             "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/chat"
@@ -186,4 +199,3 @@ def ai_coach():
 # ===============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
