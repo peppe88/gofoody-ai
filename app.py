@@ -4,7 +4,6 @@ import random
 import os
 from functools import wraps
 from flask_cors import CORS
-from chat import register_chat_routes
 
 # ===============================
 # CONFIGURAZIONE BASE
@@ -41,6 +40,7 @@ def require_api_key(f):
 try:
     from nutrition_ai import calcola_bmi
     from dispensa_ai import suggerisci_usi
+    from chat import register_chat_routes
     from coach import genera_messaggio
     from utils import match_ricette, genera_procedimento
 except ImportError:
