@@ -5,7 +5,7 @@ from flask import request, jsonify
 # ===========================
 # CONFIG SICUREZZA
 # ===========================
-AI_KEY = os.getenv("AI_KEY", "F7a92c3B8e19xK4Lz0pW")  # stessa chiave PHP e Flask
+AI_KEY = os.getenv("AI_KEY", "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi")  # stessa chiave PHP e Flask
 
 def verifica_chiave():
     """Verifica che la richiesta contenga la chiave API corretta."""
