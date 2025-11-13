@@ -67,7 +67,7 @@ except ImportError as e:
 # CONFIGURAZIONE BASE FLASK
 # ===============================
 app = Flask(__name__)
-CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
+CORS(app, resources={r"/ai/*": {"origins": "*"}}, supports_credentials=False)
 
 # ✅ Registra le rotte Chat AI solo se la funzione è disponibile
 if register_chat_routes:
