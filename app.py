@@ -7,6 +7,8 @@ from flask_cors import CORS
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
 # ===============================
+register_chat_routes = None  # inizializzazione di sicurezza
+
 try:
     from nutrition_ai import calcola_bmi
     from dispensa_ai import suggerisci_usi
@@ -61,20 +63,27 @@ except ImportError as e:
         ]
         return "\n".join([intro] + corpo)
 
-    register_chat_routes = None  # evita NameError se non importata
-
 
 # ===============================
 # CONFIGURAZIONE BASE FLASK
 # ===============================
 app = Flask(__name__)
-CORS(app, origins=["https://goofoody.com", "https://www.goofoody.com"])
+CORS(app, origins=[
+    "https://gofoody.com",
+    "https://www.gofoody.com",
+    "https://gofoody-ai.onrender.com"
+])
 
 # ✅ Registra le rotte Chat AI solo se la funzione è disponibile
 if register_chat_routes:
-    register_chat_routes(app)
+    try:
+        register_chat_routes(app)
+        print("✅ Rotta /ai/chat registrata correttamente.")
+    except Exception as e:
+        print("❌ Errore durante la registrazione della rotta /ai/chat:", e)
 else:
-    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
+    print("⚠️ Chat AI non attiva: register_chat_routes non trovato o non importata.")
+
 
 # Chiave segreta per chiamate da PHP
 API_KEY = os.getenv(
