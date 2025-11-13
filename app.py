@@ -63,7 +63,6 @@ except ImportError as e:
 
     register_chat_routes = None  # evita NameError se non importata
 
-
 # ===============================
 # CONFIGURAZIONE BASE FLASK
 # ===============================
@@ -82,7 +81,6 @@ API_KEY = os.getenv(
     "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
 )
 
-
 # ===============================
 # DECORATORE AUTENTICAZIONE
 # ===============================
@@ -99,7 +97,6 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated
 
-
 # ===============================
 # ENDPOINT PUBBLICO HEALTH CHECK
 # ===============================
@@ -114,7 +111,6 @@ def health():
             "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/chat"
         ]
     })
-
 
 # ===============================
 # ENDPOINT RICETTE
@@ -136,7 +132,6 @@ def ai_ricetta():
     risultati = match_ricette(recipes, dispensa, allergie, preferenze)
     return jsonify({"ricette": risultati[:5]})
 
-
 # ===============================
 # ENDPOINT PROCEDIMENTO
 # ===============================
@@ -149,7 +144,6 @@ def ai_procedimento():
     dieta = data.get("dieta", "")
     testo = genera_procedimento(titolo, ingredienti, dieta)
     return jsonify({"procedimento": testo})
-
 
 # ===============================
 # ENDPOINT NUTRIZIONE
@@ -166,7 +160,6 @@ def ai_nutrizione():
     risultato = calcola_bmi(peso, altezza, eta, sesso)
     return jsonify(risultato)
 
-
 # ===============================
 # ENDPOINT DISPENSA
 # ===============================
@@ -177,7 +170,6 @@ def ai_dispensa():
     dispensa = data.get("dispensa", [])
     risultati = suggerisci_usi(dispensa)
     return jsonify({"alert": risultati})
-
 
 # ===============================
 # ENDPOINT COACH
@@ -193,6 +185,37 @@ def ai_coach():
     messaggio = genera_messaggio(bmi, dieta, trend)
     return jsonify({"coach_message": messaggio})
 
+# ===============================
+# ENDPOINT CHAT AI (fix locale, chirurgico)
+# ===============================
+@app.route("/ai/chat", methods=["POST"])
+def ai_chat_direct():
+    """Endpoint dedicato alla chat GoFoody AI"""
+    try:
+        from chat import recupera_memoria, genera_risposta_locale, salva_conversazione
+    except Exception as e:
+        print("❌ Errore importazione moduli chat.py:", e)
+        return jsonify({"risposta": "Errore interno AI."}), 500
+
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        prompt = data.get("prompt", "").strip()
+        id_utente = int(data.get("id_utente", 0))
+        if not prompt:
+            return jsonify({"risposta": "Scrivimi qualcosa e ti risponderò 😊"})
+    except Exception as e:
+        print("⚠️ Errore parsing richiesta:", e)
+        return jsonify({"risposta": "Richiesta non valida."}), 400
+
+    try:
+        memoria = recupera_memoria(id_utente)
+        risposta = genera_risposta_locale(prompt, memoria)
+        salva_conversazione(id_utente, prompt, risposta)
+        print(f"💬 [AI] Utente {id_utente} → {prompt} | Risposta → {risposta}")
+        return jsonify({"risposta": risposta})
+    except Exception as e:
+        print("⚠️ Errore AI interno:", e)
+        return jsonify({"risposta": "L’assistente AI non è al momento disponibile."}), 500
 
 # ===============================
 # AVVIO LOCALE
