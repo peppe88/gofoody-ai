@@ -4,6 +4,7 @@
 # ================================================================
 
 import mysql.connector
+from flask import request, jsonify
 from datetime import datetime
 import random
 
@@ -16,7 +17,6 @@ DB_CONFIG = {
     "password": "Peppino_88",
     "database": "Sql1897455_3"
 }
-
 
 # ================================================================
 # FUNZIONI DI SUPPORTO
@@ -61,13 +61,9 @@ def recupera_memoria(id_utente, limit=10):
 # ================================================================
 
 def genera_risposta_locale(prompt, memoria):
-    """
-    Genera una risposta pseudo-intelligente basata sul prompt e
-    sulla memoria recente dell’utente.
-    """
+    """Genera una risposta pseudo-intelligente basata sul prompt e la memoria recente."""
     p = prompt.lower()
 
-    # Risposte contestuali “fisse” (domini GoFoody)
     if "ciao" in p or "salve" in p:
         return "Ciao 👋! Sono GoFoody AI, il tuo assistente in cucina. Cosa vuoi cucinare oggi?"
     if "ricetta" in p:
@@ -79,12 +75,10 @@ def genera_risposta_locale(prompt, memoria):
     if "consiglio" in p or "help" in p or "aiuto" in p:
         return "Eccomi 👨‍🍳! Posso aiutarti a creare un piano alimentare, trovare ricette o gestire la tua dispensa!"
 
-    # Se l’argomento è già apparso in memoria
     for chat in reversed(memoria):
         if prompt.lower() in chat["prompt"].lower():
             return f"Ne avevamo già parlato! Ti avevo detto: {chat['risposta']}"
 
-    # Risposte generiche casuali (fallback)
     return random.choice([
         "Interessante! Raccontami meglio cosa vuoi preparare 🍽️",
         "Mh, non ho capito bene... vuoi un consiglio su una ricetta o sulla dieta?",
@@ -102,25 +96,21 @@ def register_chat_routes(app):
 
     @app.route("/ai/chat", methods=["POST"])
     def ai_chat():
-        """
-        Gestisce la chat AI locale.
-        Richiede JSON: {"prompt": "testo", "id_utente": 1}
-        Restituisce: {"risposta": "..."}
-        """
-        data = app.current_request.get_json(force=True) if hasattr(app, 'current_request') else None
-        if not data:
-            from flask import request
-            data = request.get_json(force=True)
-
-        prompt = data.get("prompt", "").strip()
-        id_utente = int(data.get("id_utente", 0))
+        try:
+            data = request.get_json(force=True, silent=True) or {}
+            prompt = data.get("prompt", "").strip()
+            id_utente = int(data.get("id_utente", 0))
+        except Exception as e:
+            print("❌ Errore parsing JSON:", e)
+            return jsonify({"risposta": "Errore durante la lettura del messaggio."}), 400
 
         if not prompt:
-            return {"risposta": "Scrivimi qualcosa e ti risponderò 😊"}
+            return jsonify({"risposta": "Scrivimi qualcosa e ti risponderò 😊"})
 
         memoria = recupera_memoria(id_utente)
         risposta = genera_risposta_locale(prompt, memoria)
-
         salva_conversazione(id_utente, prompt, risposta)
 
-        return {"risposta": risposta}
+        print(f"✅ AI risponde a utente {id_utente}: {risposta}")
+        return jsonify({"risposta": risposta})
+
