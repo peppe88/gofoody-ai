@@ -1,1 +1,233 @@
+{
+  "pasta_al_pomodoro": {
+    "titolo": "Pasta al pomodoro",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 320,
+    "ingredienti": [
+      { "nome": "Pasta", "quantita_g": 80 },
+      { "nome": "Passata di pomodoro", "quantita_g": 150 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 3 },
+      { "nome": "Basilico fresco", "quantita_g": 2 }
+    ]
+  },
+
+  "spaghetti_aglio_olio": {
+    "titolo": "Spaghetti aglio e olio",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 280,
+    "ingredienti": [
+      { "nome": "Spaghetti", "quantita_g": 80 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 12 },
+      { "nome": "Aglio", "quantita_g": 5 },
+      { "nome": "Peperoncino", "quantita_g": 1 },
+      { "nome": "Prezzemolo", "quantita_g": 3 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "pasta_alla_carbonara": {
+    "titolo": "Pasta alla carbonara",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 320,
+    "ingredienti": [
+      { "nome": "Spaghetti", "quantita_g": 80 },
+      { "nome": "Guanciale", "quantita_g": 40 },
+      { "nome": "Uova", "quantita_g": 60 },
+      { "nome": "Pecorino romano", "quantita_g": 20 },
+      { "nome": "Pepe nero", "quantita_g": 1 },
+      { "nome": "Sale", "quantita_g": 2 }
+    ]
+  },
+
+  "risotto_alla_milanese": {
+    "titolo": "Risotto alla milanese",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 330,
+    "ingredienti": [
+      { "nome": "Riso per risotti", "quantita_g": 80 },
+      { "nome": "Burro", "quantita_g": 20 },
+      { "nome": "Parmigiano reggiano", "quantita_g": 15 },
+      { "nome": "Brodo di carne", "quantita_g": 200 },
+      { "nome": "Zafferano", "quantita_g": 0.2 },
+      { "nome": "Cipolla", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "lasagne_alla_bolognese": {
+    "titolo": "Lasagne alla bolognese",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 350,
+    "ingredienti": [
+      { "nome": "Pasta per lasagne", "quantita_g": 70 },
+      { "nome": "Ragù di carne", "quantita_g": 150 },
+      { "nome": "Besciamella", "quantita_g": 100 },
+      { "nome": "Parmigiano reggiano", "quantita_g": 20 }
+    ]
+  },
+
+  "gnocchi_al_pesto": {
+    "titolo": "Gnocchi al pesto",
+    "categoria": "primo",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 320,
+    "ingredienti": [
+      { "nome": "Gnocchi di patate", "quantita_g": 200 },
+      { "nome": "Pesto alla genovese", "quantita_g": 40 },
+      { "nome": "Parmigiano reggiano", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "pollo_alla_griglia": {
+    "titolo": "Petto di pollo alla griglia",
+    "categoria": "secondo_carne",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 200,
+    "ingredienti": [
+      { "nome": "Petto di pollo", "quantita_g": 150 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 5 },
+      { "nome": "Sale", "quantita_g": 2 },
+      { "nome": "Rosmarino", "quantita_g": 1 },
+      { "nome": "Pepe nero", "quantita_g": 1 }
+    ]
+  },
+
+  "bistecca_manzo_piastra": {
+    "titolo": "Bistecca di manzo alla piastra",
+    "categoria": "secondo_carne",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 230,
+    "ingredienti": [
+      { "nome": "Bistecca di manzo", "quantita_g": 200 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 5 },
+      { "nome": "Sale", "quantita_g": 2 },
+      { "nome": "Pepe nero", "quantita_g": 1 }
+    ]
+  },
+
+  "polpette_al_sugo": {
+    "titolo": "Polpette al sugo",
+    "categoria": "secondo_carne",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 260,
+    "ingredienti": [
+      { "nome": "Carne macinata mista", "quantita_g": 120 },
+      { "nome": "Pane raffermo", "quantita_g": 20 },
+      { "nome": "Latte", "quantita_g": 20 },
+      { "nome": "Uova", "quantita_g": 20 },
+      { "nome": "Parmigiano reggiano", "quantita_g": 10 },
+      { "nome": "Passata di pomodoro", "quantita_g": 120 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "salmone_al_forno": {
+    "titolo": "Salmone al forno",
+    "categoria": "secondo_pesce",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 230,
+    "ingredienti": [
+      { "nome": "Filetto di salmone", "quantita_g": 180 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 5 },
+      { "nome": "Limone", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 2 },
+      { "nome": "Pepe nero", "quantita_g": 1 }
+    ]
+  },
+
+  "orata_al_forno_con_patate": {
+    "titolo": "Orata al forno con patate",
+    "categoria": "secondo_pesce",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 350,
+    "ingredienti": [
+      { "nome": "Orata", "quantita_g": 200 },
+      { "nome": "Patate", "quantita_g": 120 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 10 },
+      { "nome": "Rosmarino", "quantita_g": 1 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "insalata_mista": {
+    "titolo": "Insalata mista",
+    "categoria": "contorno",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 200,
+    "ingredienti": [
+      { "nome": "Lattuga", "quantita_g": 80 },
+      { "nome": "Pomodori", "quantita_g": 60 },
+      { "nome": "Carote", "quantita_g": 30 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 8 },
+      { "nome": "Sale", "quantita_g": 2 }
+    ]
+  },
+
+  "patate_al_forno": {
+    "titolo": "Patate al forno",
+    "categoria": "contorno",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 200,
+    "ingredienti": [
+      { "nome": "Patate", "quantita_g": 180 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 10 },
+      { "nome": "Rosmarino", "quantita_g": 1 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "pizza_margherita": {
+    "titolo": "Pizza margherita",
+    "categoria": "piatto_unico",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 380,
+    "ingredienti": [
+      { "nome": "Impasto per pizza", "quantita_g": 220 },
+      { "nome": "Passata di pomodoro", "quantita_g": 80 },
+      { "nome": "Mozzarella", "quantita_g": 80 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 8 },
+      { "nome": "Basilico fresco", "quantita_g": 2 },
+      { "nome": "Sale", "quantita_g": 2 }
+    ]
+  },
+
+  "insalata_di_riso": {
+    "titolo": "Insalata di riso",
+    "categoria": "piatto_unico",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 320,
+    "ingredienti": [
+      { "nome": "Riso per insalate", "quantita_g": 80 },
+      { "nome": "Tonno sott'olio sgocciolato", "quantita_g": 40 },
+      { "nome": "Piselli", "quantita_g": 30 },
+      { "nome": "Wurstel", "quantita_g": 30 },
+      { "nome": "Olive", "quantita_g": 15 },
+      { "nome": "Olio extravergine di oliva", "quantita_g": 10 },
+      { "nome": "Sale", "quantita_g": 3 }
+    ]
+  },
+
+  "tiramisu_monoporzione": {
+    "titolo": "Tiramisù monoporzione",
+    "categoria": "dolce",
+    "porzioni_standard": 1,
+    "peso_totale_piatto_g": 150,
+    "ingredienti": [
+      { "nome": "Savoiardi", "quantita_g": 40 },
+      { "nome": "Mascarpone", "quantita_g": 50 },
+      { "nome": "Uova", "quantita_g": 20 },
+      { "nome": "Zucchero", "quantita_g": 15 },
+      { "nome": "Caffè", "quantita_g": 20 },
+      { "nome": "Cacao amaro in polvere", "quantita_g": 5 }
+    ]
+  }
+}
 
