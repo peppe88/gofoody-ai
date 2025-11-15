@@ -6,7 +6,7 @@ from flask_cors import CORS
 import json
 import difflib
 import unicodedata
-
+import re
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
 # ===============================
@@ -136,8 +136,38 @@ def strip_accents(s: str) -> str:
         if unicodedata.category(c) != 'Mn'
     )
 
-
 def slugify_name(name: str) -> str:
+    # Mappa alias per alimenti base (singolare/plurale/sinonimi)
+# Chiavi e valori sono nello stesso formato di slugify_name()
+ALIMENTI_ALIAS = {
+    "mele": "mela",
+    "mela_rossa": "mela",
+    "mela_verde": "mela",
+
+    "banane": "banana",
+    "pere": "pera",
+    "arance": "arancia",
+    "pesche": "pesca",
+    "ciliegie": "ciliegia",
+
+    "pomodori": "pomodoro",
+    "pomodorini": "pomodoro",
+    "ciliegini": "pomodoro",
+    "datterini": "pomodoro",
+
+    "zucchine": "zucchina",
+    "melanzane": "melanzana",
+    "carote": "carota",
+    "cipolle": "cipolla",
+
+    "uova": "uovo",
+
+    "penne": "pasta_secca",
+    "spaghetti": "pasta_secca",
+    "fusilli": "pasta_secca",
+    "rigatoni": "pasta_secca",
+    "farfalle": "pasta_secca",
+}
     """
     Converte 'Passata di pomodoro' → 'passata_di_pomodoro'
     ed è la chiave usata in nutrients.json.
@@ -150,7 +180,6 @@ def slugify_name(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s
-
 
 def normalizza_nome_piatto(nome: str) -> str:
     """Normalizza il nome del piatto per matchare ricette."""
@@ -176,6 +205,62 @@ def normalizza_nome_piatto(nome: str) -> str:
 
 
 def normalizza_unita(q):
+    def quantita_to_grams(alimento_name: str, quantita) -> float:
+    """
+    Converte la quantità inserita dall'utente in grammi, usando anche default_weight_g
+    di nutrients.json quando l'utente indica pezzi (pz / pezzo / pezzi / numero piccolo).
+    """
+    # Normalizzo la stringa
+    if isinstance(quantita, (int, float)):
+        s = str(quantita)
+    else:
+        s = (quantita or "").lower().strip()
+
+    m = re.search(r"([0-9]+(?:\.[0-9]+)?)", s)
+    if not m:
+        return 0.0
+
+    num = float(m.group(1))
+
+    # Unità di peso esplicite
+    if "kg" in s:
+        return num * 1000.0
+    if "mg" in s:
+        return num / 1000.0
+    if "ml" in s:
+        return num               # 1 ml ≈ 1 g
+    if "l" in s and "ml" not in s:
+        return num * 1000.0
+    if "g" in s:
+        return num
+
+    # Se non c'è nessuna unità di peso, capiamo se sono PEZZI
+    is_piece = (
+        "pz" in s or
+        "pezzo" in s or
+        "pezzi" in s or
+        " x" in s or
+        (num <= 5 and float(num).is_integer())
+    )
+
+    if is_piece:
+        # Provo a prendere default_weight_g da nutrients.json
+        base_norm = normalizza_nome_piatto(alimento_name)
+        slug = slugify_name(base_norm)
+
+        alias = ALIMENTI_ALIAS.get(slug)
+        if alias:
+            slug = alias
+
+        data = NUTRIENTS.get(slug, {})
+        default_w = float(data.get("default_weight_g", 0.0) or 0.0)
+        if default_w <= 0:
+            default_w = 100.0  # fallback ragionevole
+
+        return num * default_w
+
+    # Nessuna unità → interpreto come grammi
+    return num
     """Converte kg/g/mg/L/ml in grammi. (ml≈g per semplicità)"""
     if isinstance(q, (int, float)):
         return float(q)
@@ -210,15 +295,22 @@ def normalizza_unita(q):
 def get_kcal_ingrediente(nome: str, quantita_g: float) -> float:
     """
     Calcola le kcal di un ingrediente usando nutrients.json.
-    Se non trova l'alimento, restituisce 0.0
+    Usa alias (mela/mele, pomodorini/pomodoro, ecc.).
     """
     if quantita_g <= 0:
         return 0.0
 
-    key = slugify_name(nome)
-    data = NUTRIENTS.get(key)
+    # Normalizzo il nome e applico alias
+    base_norm = normalizza_nome_piatto(nome)
+    slug = slugify_name(base_norm)
+
+    alias = ALIMENTI_ALIAS.get(slug)
+    if alias:
+        slug = alias
+
+    data = NUTRIENTS.get(slug)
     if not data:
-        # ultimo tentativo: fuzzy match sul label
+        # Ultimo tentativo: fuzzy match sull'etichetta
         best_key = None
         best_score = 0.0
         for k, v in NUTRIENTS.items():
@@ -240,31 +332,39 @@ def get_kcal_ingrediente(nome: str, quantita_g: float) -> float:
     kcal_100 = float(data.get("kcal_per_100g", 0.0))
     return (quantita_g * kcal_100) / 100.0
 
-
-def stima_fattore_scala(q_input, ricetta):
-    """Scala la ricetta rispetto al peso totale del piatto."""
+def stima_fattore_scala(alimento_raw, quantita, ricetta):
+    """
+    Scala la ricetta rispetto al peso totale del piatto.
+    Per piatti composti (italian_recipes / user_recipes):
+      fattore = grammi_richiesti / peso_totale_piatto
+    Per alimenti semplici (mela, banana, ecc.) la ricetta viene costruita
+    già con il peso richiesto, quindi il fattore tipicamente è 1.
+    """
     base_peso = float(ricetta.get("peso_totale_piatto_g", 300) or 300)
-    q_norm = normalizza_unita(q_input)
-    if q_norm <= 0:
+    q_norm = quantita_to_grams(alimento_raw, quantita)
+    if q_norm <= 0 or base_peso <= 0:
         return 1.0
     return q_norm / base_peso
-
 
 def trova_ricetta(alimento_raw: str):
     """
     Cerca una ricetta tra:
       1) USER_RECIPES
       2) ITALIAN_RECIPES
-    usando:
-      - match diretto su chiave
-      - match parziale
-      - fuzzy match
+
+    MA se l'alimento è presente in nutrients.json (es. 'mela', 'banana'),
+    lo trattiamo come alimento semplice → nessuna ricetta predefinita.
     """
     alimento_norm = normalizza_nome_piatto(alimento_raw)
     if not alimento_norm:
         return None, None
 
     key_norm = slugify_name(alimento_norm)
+
+    # Se è un alimento base (presente in nutrients.json) → niente ricetta,
+    # useremo costruisci_ricetta_semplice()
+    if key_norm in NUTRIENTS:
+        return None, None
 
     sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
 
@@ -298,25 +398,33 @@ def trova_ricetta(alimento_raw: str):
 
     return None, None
 
-
-def costruisci_ricetta_semplice(alimento_raw: str, quantita: str):
+def costruisci_ricetta_semplice(alimento_raw: str, quantita):
     """
     Per alimenti semplici (es. 'mela', '100 g pollo')
     crea una ricetta monocomponente usando nutrients.json.
+    Usa quantita_to_grams per gestire g, kg, ml, pz, ecc.
     """
     alimento_norm = normalizza_nome_piatto(alimento_raw)
     if not alimento_norm:
         return None
 
-    q_g = normalizza_unita(quantita)
-    if q_g <= 0:
-        q_g = 100.0
+    # Applico eventuali alias per nomi come "mele" -> "mela"
+    slug = slugify_name(alimento_norm)
+    alias = ALIMENTI_ALIAS.get(slug)
+    if alias:
+        # trasformo "mela" in "mela" (da slug) per coerenza con nutrients
+        alimento_norm = alias.replace("_", " ")
 
-    kcal_tot = get_kcal_ingrediente(alimento_norm, q_g)
-    if kcal_tot <= 0:
-        # riprova direttamente con raw
-        kcal_tot = get_kcal_ingrediente(alimento_raw, q_g)
-        if kcal_tot <= 0:
+    q_g = quantita_to_grams(alimento_norm, quantita)
+    if q_g <= 0:
+        q_g = 100.0  # fallback
+
+    # Verifico che esista un alimento corrispondente in nutrients
+    kcal_test = get_kcal_ingrediente(alimento_norm, q_g)
+    if kcal_test <= 0:
+        # ultimo tentativo con il raw name
+        kcal_test = get_kcal_ingrediente(alimento_raw, q_g)
+        if kcal_test <= 0:
             return None
 
     ricetta = {
@@ -330,7 +438,6 @@ def costruisci_ricetta_semplice(alimento_raw: str, quantita: str):
         ]
     }
     return ricetta
-
 
 def salva_ricetta_semplice_user(alimento_raw: str, ricetta: dict):
     """
