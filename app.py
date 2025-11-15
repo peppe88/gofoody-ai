@@ -4,6 +4,7 @@ import os
 from functools import wraps
 from flask_cors import CORS
 import json
+import difflib
 
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
@@ -70,28 +71,84 @@ except ImportError as e:
 # ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Carica ricette italiane
+# Carica ricette italiane (base)
 try:
     with open(os.path.join(BASE_DIR, "data", "italian_recipes.json"), "r", encoding="utf-8") as f:
         ITALIAN_RECIPES = json.load(f)
+    if not isinstance(ITALIAN_RECIPES, dict):
+        ITALIAN_RECIPES = {}
     print("✅ italian_recipes.json caricato")
 except Exception as e:
     print("❌ Errore caricamento italian_recipes.json:", e)
     ITALIAN_RECIPES = {}
 
+# Carica ricette utente (personalizzate)
+USER_RECIPES_PATH = os.path.join(BASE_DIR, "data", "user_recipes.json")
+try:
+    if os.path.exists(USER_RECIPES_PATH):
+        with open(USER_RECIPES_PATH, "r", encoding="utf-8") as f:
+            USER_RECIPES = json.load(f)
+        if not isinstance(USER_RECIPES, dict):
+            USER_RECIPES = {}
+    else:
+        USER_RECIPES = {}
+    print("✅ user_recipes.json caricato (o inizializzato)")
+except Exception as e:
+    print("❌ Errore caricamento user_recipes.json:", e)
+    USER_RECIPES = {}
+
 # Carica database nutrizionale FoodData Central
 try:
     with open(os.path.join(BASE_DIR, "data", "FoodData_Central.json"), "r", encoding="utf-8") as f:
         NUTRIENT_DB = json.load(f)
+    if not isinstance(NUTRIENT_DB, list):
+        NUTRIENT_DB = []
     print("✅ FoodData_Central.json caricato")
 except Exception as e:
     print("❌ Errore caricamento FoodData_Central.json:", e)
-    NUTRIENT_DB = {}
+    NUTRIENT_DB = []
+
+
+def save_user_recipes():
+    """Salva il dizionario USER_RECIPES su file JSON."""
+    try:
+        os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
+        with open(USER_RECIPES_PATH, "w", encoding="utf-8") as f:
+            json.dump(USER_RECIPES, f, ensure_ascii=False, indent=2)
+        print("💾 user_recipes.json aggiornato")
+    except Exception as e:
+        print("❌ Errore salvataggio user_recipes.json:", e)
 
 
 # ===============================
 # FUNZIONI UTILI MEAL AI ENGINE
 # ===============================
+def normalizza_nome_piatto(nome: str) -> str:
+    """Normalizza il nome del piatto per la ricerca ricetta."""
+    if not isinstance(nome, str):
+        return ""
+    s = nome.strip().lower()
+
+    # rimuovo punteggiatura semplice
+    import re
+    s = re.sub(r"[^a-zàèéìòù0-9 ]", " ", s)
+    s = re.sub(r"\s+", " ", s)
+
+    # stopwords base
+    stop = [
+        "il", "lo", "la", "i", "gli", "le",
+        "un", "una", "uno",
+        "di", "del", "della", "dello", "delle", "dei", "degli",
+        "al", "allo", "alla", "alle", "col", "con",
+        "e", "ed",
+        "alla", "alle", "allo"
+    ]
+    parole = [p for p in s.split(" ") if p not in stop]
+    s = " ".join(parole).strip()
+
+    return s
+
+
 def normalizza_unita(q):
     """Converte kg/g/mg/L/ml in grammi. ml≈g per semplicità."""
     if not isinstance(q, str):
@@ -121,20 +178,102 @@ def normalizza_unita(q):
 def stima_fattore_scala(q_input, ricetta):
     """Scala la ricetta rispetto al peso totale del piatto."""
     base_peso = ricetta.get("peso_totale_piatto_g", 300)
-    q_norm = normalizza_unita(q_input)
+    q_norm = normalizza_unita(q_input) if isinstance(q_input, str) else float(q_input or 0)
     if q_norm <= 0:
         return 1
     return q_norm / base_peso
 
 
 def get_kcal_ingrediente(nome, quantita_g):
-    """Calcola le kcal partendo da FoodData_Central.json"""
-    nome = nome.lower().strip()
+    """Calcola le kcal partendo da FoodData_Central.json (kcal/100g)."""
+    nome = (nome or "").lower().strip()
     for item in NUTRIENT_DB:
-        if item.get("nome", "").lower() == nome:
-            kcal100 = item.get("kcal_100g", 0)
-            return (quantita_g * kcal100) / 100
-    return 0
+        if item.get("nome", "").lower().strip() == nome:
+            kcal100 = float(item.get("kcal_100g", 0))
+            return (quantita_g * kcal100) / 100.0
+    return 0.0
+
+
+def trova_ricetta(alimento_raw: str):
+    """
+    Cerca una ricetta tra:
+      1) USER_RECIPES
+      2) ITALIAN_RECIPES
+    usando:
+      - match chiave diretto (nome → nome_con_underscore)
+      - match parziale
+      - fuzzy match (similar_text like)
+    """
+    alimento_norm = normalizza_nome_piatto(alimento_raw)
+    if not alimento_norm:
+        return None, None
+
+    key_norm = alimento_norm.replace(" ", "_")
+
+    # combino sorgenti in ordine di priorità: prima utente, poi base
+    sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
+
+    # 1) match diretto
+    for source_name, src in sorgenti:
+        if key_norm in src:
+            return src[key_norm], source_name
+
+    # 2) match parziale su chiave
+    for source_name, src in sorgenti:
+        for k, rec in src.items():
+            if alimento_norm in k.replace("_", " "):
+                return rec, source_name
+
+    # 3) fuzzy match su chiave
+    best_rec = None
+    best_src = None
+    best_score = 0.0
+    for source_name, src in sorgenti:
+        for k, rec in src.items():
+            label = k.replace("_", " ")
+            score = difflib.SequenceMatcher(None, alimento_norm, label).ratio()
+            if score > best_score:
+                best_score = score
+                best_rec = rec
+                best_src = source_name
+
+    # soglia minima 0.7
+    if best_rec is not None and best_score >= 0.7:
+        return best_rec, best_src
+
+    return None, None
+
+
+def costruisci_ricetta_semplice(alimento_raw: str, quantita: str):
+    """
+    Se non troviamo la ricetta nel JSON,
+    proviamo a creare un piatto semplice monocomponente usando FoodData_Central.
+    Esempio: “mela”, “pollo”, “riso”, ecc.
+    """
+    alimento_norm = normalizza_nome_piatto(alimento_raw)
+    if not alimento_norm:
+        return None
+
+    q_g = normalizza_unita(quantita) if isinstance(quantita, str) else float(quantita or 0)
+    if q_g <= 0:
+        q_g = 100.0  # fallback 100 g
+
+    kcal_tot = get_kcal_ingrediente(alimento_norm, q_g)
+    if kcal_tot <= 0:
+        # non abbiamo info nutrizionali affidabili
+        return None
+
+    ricetta = {
+        "titolo": alimento_raw.strip().capitalize() or alimento_norm.capitalize(),
+        "peso_totale_piatto_g": q_g,
+        "ingredienti": [
+            {
+                "nome": alimento_norm,
+                "quantita_g": q_g
+            }
+        ]
+    }
+    return ricetta
 
 
 # ===============================
@@ -224,40 +363,55 @@ def ai_procedimento():
 
 
 # ===============================
-# ENDPOINT MEAL (NUOVO)
+# ENDPOINT MEAL (EVOLUTO)
 # ===============================
 @app.route("/ai/meal", methods=["POST"])
 @require_api_key
 def ai_meal():
     data = request.get_json(force=True)
-    alimento = data.get("alimento", "").lower().strip()
+    alimento_raw = (data.get("alimento", "") or "").strip()
     quantita = data.get("quantita", "0")
-    porzioni = float(data.get("porzioni", 1))
+    porzioni = float(data.get("porzioni", 1) or 1)
 
-    # 1) Trova ricetta
-    ricetta = None
-    key_match = alimento.replace(" ", "_")
-    if key_match in ITALIAN_RECIPES:
-        ricetta = ITALIAN_RECIPES[key_match]
-    else:
-        for k in ITALIAN_RECIPES:
-            if alimento in k.replace("_", " "):
-                ricetta = ITALIAN_RECIPES[k]
-                break
+    if not alimento_raw:
+        return jsonify({"error": "ALIMENTO_VUOTO"}), 400
 
-    if not ricetta:
+    # 1) cerca ricetta in base + user
+    ricetta, sorgente = trova_ricetta(alimento_raw)
+    new_recipe = False
+
+    # 2) se non trovata, prova a costruire ricetta semplice da NUTRIENT_DB
+    if ricetta is None:
+        ricetta = costruisci_ricetta_semplice(alimento_raw, quantita)
+        if ricetta is not None:
+            # salviamo in USER_RECIPES per usi futuri
+            key = normalizza_nome_piatto(alimento_raw).replace(" ", "_")
+            if key:
+                USER_RECIPES[key] = ricetta
+                save_user_recipes()
+                sorgente = "user"
+                new_recipe = True
+
+    # 3) se ancora nulla → errore (PHP userà fallback interno)
+    if ricetta is None:
         return jsonify({"error": "RICETTA_NON_TROVATA"}), 404
 
-    # 2) Fattore scala
+    # 4) calcola fattore scala
     fattore = stima_fattore_scala(quantita, ricetta)
 
     ingredienti_finali = []
-    kcal_tot = 0
+    kcal_tot = 0.0
 
     for ing in ricetta.get("ingredienti", []):
-        nome = ing["nome"]
-        base_q = float(ing["quantita_g"])
+        try:
+            nome = ing.get("nome", "")
+            base_q = float(ing.get("quantita_g", 0))
+        except Exception:
+            continue
+
         q_finale = base_q * fattore * porzioni
+        if q_finale <= 0:
+            continue
 
         kcal_ing = get_kcal_ingrediente(nome, q_finale)
         kcal_tot += kcal_ing
@@ -269,10 +423,12 @@ def ai_meal():
         })
 
     return jsonify({
-        "titolo": ricetta.get("titolo", alimento),
-        "alimento_originale": alimento,
+        "titolo": ricetta.get("titolo", alimento_raw),
+        "alimento_originale": alimento_raw,
         "porzioni": porzioni,
         "fattore_scala": round(fattore, 3),
+        "sorgente": sorgente or "sconosciuta",
+        "new_recipe": new_recipe,
         "ingredienti": ingredienti_finali,
         "kcal_totali": round(kcal_tot, 1)
     })
