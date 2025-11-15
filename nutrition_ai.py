@@ -1,11 +1,13 @@
-from datetime import datetime
 import os
+import json
 from flask import request, jsonify
+from datetime import datetime
 
 # ===========================
 # CONFIG SICUREZZA
 # ===========================
-AI_KEY = os.getenv("AI_KEY", "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi")  # stessa chiave usata nel PHP
+AI_KEY = os.getenv("AI_KEY", "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi")
+
 
 def verifica_chiave():
     """Verifica che la richiesta contenga la chiave API corretta."""
@@ -16,63 +18,132 @@ def verifica_chiave():
     return token == AI_KEY
 
 
-# ===========================
-# FUNZIONE PRINCIPALE BMI
-# ===========================
-def calcola_bmi(peso, altezza, eta, sesso):
-    """
-    Calcola il BMI e restituisce una valutazione con suggerimento nutrizionale.
-    """
+# ===============================================
+# CARICAMENTO DATABASE NUTRIZIONALE (300 alimenti)
+# ===============================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+NUTRIENTS_PATH = os.path.join(BASE_DIR, "data", "nutrients.json")
 
-    # Validazione base
+try:
+    with open(NUTRIENTS_PATH, "r", encoding="utf-8") as f:
+        NUTRIENT_DB = json.load(f)
+    if not isinstance(NUTRIENT_DB, list):
+        NUTRIENT_DB = []
+    print("✅ nutrients.json caricato (300 alimenti)")
+except Exception as e:
+    print("❌ Errore caricamento nutrients.json:", e)
+    NUTRIENT_DB = []
+
+
+# ===============================================
+# FUNZIONI DI NORMALIZZAZIONE
+# ===============================================
+def normalizza_nome(nome):
+    nome = nome.lower().strip()
+    # sinonimi base come API
+    mapping = {
+        "pomodori": "pomodoro",
+        "pomodorini": "pomodoro",
+        "datterini": "pomodoro",
+        "ciliegino": "pomodoro",
+        "ciliegini": "pomodoro",
+        "banane": "banana",
+        "mele": "mela",
+        "arance": "arancia",
+        "zucchine": "zucchina"
+    }
+    return mapping.get(nome, nome)
+
+
+# ===============================================
+# FUNZIONE: CERCA NUTRIENTI PER ALIMENTO
+# ===============================================
+def trova_nutrienti(alimento_norm):
+    """
+    Cerca il valore nutrizionale in nutrients.json
+    (kcal, carb, proteine, grassi per 100g)
+    """
+    alimento_norm = alimento_norm.lower().strip()
+
+    for row in NUTRIENT_DB:
+        nome = row.get("nome", "").lower()
+        if alimento_norm == nome:
+            return row
+
+    # fuzzy fallback: contiene
+    for row in NUTRIENT_DB:
+        nome = row.get("nome", "").lower()
+        if alimento_norm in nome or nome in alimento_norm:
+            return row
+
+    return None
+
+
+# ===============================================
+# FUNZIONE: CALCOLA KCAL DATI ALIMENTO + GRAMMI
+# ===============================================
+def calcola_kcal_da_nutrienti(alimento, quantita_g):
+    nutr = trova_nutrienti(alimento)
+    if not nutr:
+        return None  # l’AI principale gestirà fallback
+
+    kcal100 = float(nutr.get("kcal_100g", 0))
+    return round((kcal100 * quantita_g) / 100.0, 1)
+
+
+# ===============================================
+# FUNZIONE PRINCIPALE BMI
+# ===============================================
+def calcola_bmi(peso, altezza, eta, sesso):
+    """Calcola il BMI e restituisce valutazione e consiglio."""
+
     if altezza <= 0 or peso <= 0:
         return {
             "bmi": None,
             "categoria": "Dati non validi",
-            "suggerimento": "Inserisci peso e altezza per calcolare il tuo BMI."
+            "suggerimento": "Inserisci peso e altezza."
         }
 
-    altezza_m = altezza / 100  # conversione in metri
+    altezza_m = altezza / 100
     bmi = round(peso / (altezza_m ** 2), 1)
 
-    # Classificazione standard OMS
+    # Classificazione OMS
     if bmi < 18.5:
         categoria = "Sottopeso"
         emoji = "🥗"
-        suggerimento = "Aumenta l’apporto calorico con pasti nutrienti e regolari."
+        suggerimento = "Aumenta l’apporto calorico."
     elif bmi < 25:
         categoria = "Peso ideale"
         emoji = "💪"
-        suggerimento = "Mantieni il tuo stile di vita equilibrato e attivo!"
+        suggerimento = "Continua con il tuo stile di vita!"
     elif bmi < 30:
         categoria = "Sovrappeso"
         emoji = "⚖️"
-        suggerimento = "Riduci zuccheri e grassi, punta su pasti più leggeri."
+        suggerimento = "Riduci zuccheri e grassi."
     else:
         categoria = "Obesità"
         emoji = "🚨"
-        suggerimento = "Consulta un nutrizionista per un piano alimentare bilanciato."
+        suggerimento = "Serve un piano alimentare controllato."
 
-    # Personalizzazione in base all’età
-    if eta and eta > 55 and bmi < 20:
-        suggerimento += " Dopo i 55 anni, un BMI leggermente più alto può essere fisiologico."
-    if sesso and sesso.lower().startswith("f") and bmi < 18.5:
-        suggerimento += " Assicurati di avere un apporto proteico adeguato."
+    # Personalizzazioni
+    if eta > 55 and bmi < 20:
+        suggerimento += " Dopo i 55 anni un BMI leggermente più alto è comune."
 
-    risultato = {
+    if sesso.lower().startswith("f") and bmi < 18.5:
+        suggerimento += " Verifica l’apporto proteico."
+
+    return {
         "bmi": bmi,
         "categoria": categoria,
         "emoji": emoji,
         "suggerimento": suggerimento
     }
-    return risultato
 
 
-# ===========================
-# ENDPOINT (opzionale se usato standalone)
-# ===========================
+# ===============================================
+# ENDPOINT (SE USATO IN MODO STANDALONE)
+# ===============================================
 def endpoint_bmi():
-    """Endpoint Flask che gestisce la chiamata /ai/nutrizione"""
     if not verifica_chiave():
         return jsonify({"error": "Unauthorized"}), 401
 
