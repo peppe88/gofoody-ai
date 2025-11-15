@@ -569,7 +569,7 @@ def ai_meal():
         return jsonify({"error": "RICETTA_NON_TROVATA"}), 404
 
     # 3) calcola fattore scala
-    fattore = stima_fattore_scala(quantita, ricetta)
+    fattore = stima_fattore_scala(alimento_raw, quantita, ricetta)
 
     ingredienti_finali = []
     kcal_tot = 0.0
