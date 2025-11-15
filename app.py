@@ -5,6 +5,7 @@ from functools import wraps
 from flask_cors import CORS
 import json
 import difflib
+import unicodedata
 
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
@@ -39,10 +40,7 @@ except ImportError as e:
         for item in dispensa:
             nome = item.get("nome", "Ingrediente").capitalize()
             scadenza = item.get("scadenza", "")
-            testo.append(
-                f"📦 Usa presto {nome}"
-                + (f" (scade il {scadenza})" if scadenza else "")
-            )
+            testo.append(f"📦 Usa presto {nome}" + (f" (scade il {scadenza})" if scadenza else ""))
         return testo
 
     def genera_messaggio(bmi, dieta, trend):
@@ -50,27 +48,14 @@ except ImportError as e:
 
     def match_ricette(recipes, dispensa, allergie, preferenze):
         return [
-            {
-                "titolo": "Pasta al pomodoro",
-                "ingredienti": ["pasta", "pomodoro", "olio"],
-                "tempo": "15 min",
-                "descrizione": "Classico primo piatto italiano."
-            },
-            {
-                "titolo": "Insalata mista",
-                "ingredienti": ["lattuga", "pomodoro", "olio"],
-                "tempo": "10 min",
-                "descrizione": "Fresca e leggera."
-            }
+            {"titolo": "Pasta al pomodoro", "ingredienti": ["pasta", "pomodoro", "olio"], "tempo": "15 min", "descrizione": "Classico primo piatto italiano."},
+            {"titolo": "Insalata mista", "ingredienti": ["lattuga", "pomodoro", "olio"], "tempo": "10 min", "descrizione": "Fresca e leggera."}
         ]
 
     def genera_procedimento(titolo, ingredienti, dieta):
         if not ingredienti:
             return "⚠️ Nessun ingrediente specificato per questa ricetta."
-        intro = (
-            f"🍽️ Oggi prepariamo *{titolo.lower()}*, "
-            f"un piatto {dieta.lower() if dieta else 'semplice'} e gustoso."
-        )
+        intro = f"🍽️ Oggi prepariamo *{titolo.lower()}*, un piatto {dieta.lower() if dieta else 'semplice'} e gustoso."
         corpo = [
             f"1️⃣ Prepara con cura {', '.join(ingredienti[:3])}.",
             "2️⃣ Scalda una padella con un filo d’olio e aggiungi gli ingredienti principali.",
@@ -83,17 +68,13 @@ except ImportError as e:
 
 
 # ===============================
-# CARICAMENTO RICETTE E NUTRIENTI
+# PATH BASE E DATI
 # ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Carica ricette italiane (base)
+# ------- RICETTE BASE (italian_recipes.json) -------
 try:
-    with open(
-        os.path.join(BASE_DIR, "data", "italian_recipes.json"),
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(os.path.join(BASE_DIR, "data", "italian_recipes.json"), "r", encoding="utf-8") as f:
         ITALIAN_RECIPES = json.load(f)
     if not isinstance(ITALIAN_RECIPES, dict):
         ITALIAN_RECIPES = {}
@@ -102,7 +83,7 @@ except Exception as e:
     print("❌ Errore caricamento italian_recipes.json:", e)
     ITALIAN_RECIPES = {}
 
-# Carica ricette utente (personalizzate)
+# ------- RICETTE UTENTE (user_recipes.json) -------
 USER_RECIPES_PATH = os.path.join(BASE_DIR, "data", "user_recipes.json")
 try:
     if os.path.exists(USER_RECIPES_PATH):
@@ -117,20 +98,22 @@ except Exception as e:
     print("❌ Errore caricamento user_recipes.json:", e)
     USER_RECIPES = {}
 
-# Carica database nutrizionale FoodData Central
+# ------- DATABASE NUTRIZIONALE (nutrients.json) -------
+NUTRIENTS_PATH = os.path.join(BASE_DIR, "data", "nutrients.json")
 try:
-    with open(
-        os.path.join(BASE_DIR, "data", "FoodData_Central.json"),
-        "r",
-        encoding="utf-8"
-    ) as f:
-        NUTRIENT_DB = json.load(f)
-    if not isinstance(NUTRIENT_DB, list):
-        NUTRIENT_DB = []
-    print("✅ FoodData_Central.json caricato")
+    if os.path.exists(NUTRIENTS_PATH):
+        with open(NUTRIENTS_PATH, "r", encoding="utf-8") as f:
+            RAW_NUTRIENTS = json.load(f)
+        if isinstance(RAW_NUTRIENTS, dict):
+            NUTRIENTS = RAW_NUTRIENTS
+        else:
+            NUTRIENTS = {}
+    else:
+        NUTRIENTS = {}
+    print(f"✅ nutrients.json caricato ({len(NUTRIENTS)} alimenti)")
 except Exception as e:
-    print("❌ Errore caricamento FoodData_Central.json:", e)
-    NUTRIENT_DB = []
+    print("❌ Errore caricamento nutrients.json:", e)
+    NUTRIENTS = {}
 
 
 def save_user_recipes():
@@ -145,165 +128,55 @@ def save_user_recipes():
 
 
 # ===============================
-# FUNZIONI UTILI MEAL AI ENGINE
+# FUNZIONI DI NORMALIZZAZIONE
 # ===============================
-def normalizza_nome_alimento_py(nome: str) -> str:
+def strip_accents(s: str) -> str:
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', s)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
+def slugify_name(name: str) -> str:
     """
-    Normalizza il nome di un alimento/ingrediente/piatto:
-    - minuscole
-    - rimozione punteggiatura
-    - stopwords
-    - sinonimi estesi (pomodorini/ciliegini/datterini, formati pasta, ecc.)
+    Converte 'Passata di pomodoro' → 'passata_di_pomodoro'
+    ed è la chiave usata in nutrients.json.
     """
+    if not isinstance(name, str):
+        return ""
+    s = name.strip().lower()
+    s = strip_accents(s)
+    import re
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
+
+
+def normalizza_nome_piatto(nome: str) -> str:
+    """Normalizza il nome del piatto per matchare ricette."""
     if not isinstance(nome, str):
         return ""
-
     s = nome.strip().lower()
+    s = strip_accents(s)
 
     import re
-    # rimuovo punteggiatura base
-    s = re.sub(r"[^a-zàèéìòù0-9 ]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"[^a-z0-9àèéìòù ]", " ", s)
+    s = re.sub(r"\s+", " ", s)
 
-    # normalizzazione frasi/sinonimi multi-parola
-    phrase_map = {
-        "olio evo": "olio extravergine di oliva",
-        "olio extra vergine": "olio extravergine di oliva",
-        "olio extravergine": "olio extravergine di oliva",
-        "olio di oliva": "olio extravergine di oliva",
-        "olio d oliva": "olio extravergine di oliva",
-        "passata di pomodoro": "passata di pomodoro",
-        "passata pomodoro": "passata di pomodoro",
-        "salsa di pomodoro": "passata di pomodoro",
-        "parmigiano reggiano": "parmigiano",
-        "grana padano": "parmigiano",
-        "petto di pollo": "pollo",
-        "cosce di pollo": "pollo",
-        "petto pollo": "pollo",
-        "petto di tacchino": "tacchino",
-        "petto tacchino": "tacchino",
-        "pane integrale": "pane",
-        "pane bianco": "pane",
-        "panino": "pane",
-        "rosetta": "pane",
-        "carne di manzo": "manzo",
-        "carne bovina": "manzo",
-        "carne di maiale": "maiale",
-        "carne suina": "maiale",
-        "latte scremato": "latte",
-        "latte parzialmente scremato": "latte",
-        "latte intero": "latte",
-        "yogurt greco": "yogurt",
-        "yogurt magro": "yogurt",
-        "riso basmati": "riso",
-        "riso integrale": "riso integrale",
-    }
-    for ph, repl in phrase_map.items():
-        if ph in s:
-            s = s.replace(ph, repl)
-
-    # stopwords comuni
     stop = [
         "il", "lo", "la", "i", "gli", "le",
         "un", "una", "uno",
         "di", "del", "della", "dello", "delle", "dei", "degli",
         "al", "allo", "alla", "alle", "col", "con",
-        "e", "ed",
-        "alla", "alle", "allo",
-        "alla", "alla", "ai", "agli"
+        "e", "ed"
     ]
-
-    parola_map = {
-        # pomodori "grandi"
-        "pomodori": "pomodoro",
-        "pomodoro": "pomodoro",
-
-        # piccoli pomodori / ciliegini / datterini
-        "pomodorini": "pomodorini",
-        "pomodorino": "pomodorini",
-        "ciliegini": "pomodorini",
-        "ciliegino": "pomodorini",
-        "datterini": "pomodorini",
-        "datterino": "pomodorini",
-        "piccadilly": "pomodorini",
-
-        # pasta (formati)
-        "penne": "pasta",
-        "spaghetti": "pasta",
-        "fusilli": "pasta",
-        "farfalle": "pasta",
-        "rigatoni": "pasta",
-        "linguine": "pasta",
-        "tagliatelle": "pasta",
-        "maccheroni": "pasta",
-
-        # proteine
-        "uova": "uovo",
-        "uovo": "uovo",
-        "bistecca": "manzo",
-        "hamburger": "manzo",
-        "cotoletta": "maiale",
-
-        # verdure
-        "zucchine": "zucchina",
-        "zucchina": "zucchina",
-        "melanzane": "melanzana",
-        "melanzana": "melanzana",
-        "carote": "carota",
-        "carota": "carota",
-        "cipolle": "cipolla",
-        "cipolla": "cipolla",
-        "patate": "patata",
-        "patata": "patata",
-
-        # condimenti
-        "olio": "olio extravergine di oliva",
-        "olio extravergine": "olio extravergine di oliva",
-        "burro": "burro",
-        "sale": "sale",
-        "zucchero": "zucchero",
-
-        # latticini
-        "mozzarella": "mozzarella",
-        "fiordilatte": "mozzarella",
-        "scamorza": "scamorza",
-        "ricotta": "ricotta",
-
-        # vari
-        "pasta": "pasta",
-        "pane": "pane",
-        "riso": "riso",
-    }
-
-    tokens = []
-    for token in s.split():
-        if token in stop:
-            continue
-        # mapping parola → canonico
-        if token in parola_map:
-            tokens.append(parola_map[token])
-        else:
-            # fallback semplice: togli 'i'/'e' finali (plurali) se ha senso
-            if token.endswith("i") or token.endswith("e"):
-                base = token[:-1]
-                tokens.append(base)
-            else:
-                tokens.append(token)
-
-    s_norm = " ".join(tokens).strip()
-    return s_norm
-
-
-def normalizza_nome_piatto(nome: str) -> str:
-    """
-    Per i piatti usiamo la stessa normalizzazione degli alimenti,
-    così 'pasta al pomodoro' e 'spaghetti al pomodoro' si avvicinano.
-    """
-    return normalizza_nome_alimento_py(nome)
+    parole = [p for p in s.split(" ") if p not in stop]
+    s = " ".join(parole).strip()
+    return s
 
 
 def normalizza_unita(q):
-    """Converte kg/g/mg/L/ml in grammi. ml≈g per semplicità."""
+    """Converte kg/g/mg/L/ml in grammi. (ml≈g per semplicità)"""
     if isinstance(q, (int, float)):
         return float(q)
     if not isinstance(q, str):
@@ -318,61 +191,63 @@ def normalizza_unita(q):
     num = float(m.group(1))
 
     if "kg" in s:
-        return num * 1000.0
+        return num * 1000
     if "mg" in s:
-        return num / 1000.0
+        return num / 1000
     if "ml" in s:
-        return num
-    if "l" in s:
-        return num * 1000.0
+        return num   # approssimazione 1ml≈1g
+    if "l" in s and "ml" not in s:
+        return num * 1000
     if "g" in s:
         return num
 
     return num
 
 
+# ===============================
+# FUNZIONI NUTRIZIONALI
+# ===============================
+def get_kcal_ingrediente(nome: str, quantita_g: float) -> float:
+    """
+    Calcola le kcal di un ingrediente usando nutrients.json.
+    Se non trova l'alimento, restituisce 0.0
+    """
+    if quantita_g <= 0:
+        return 0.0
+
+    key = slugify_name(nome)
+    data = NUTRIENTS.get(key)
+    if not data:
+        # ultimo tentativo: fuzzy match sul label
+        best_key = None
+        best_score = 0.0
+        for k, v in NUTRIENTS.items():
+            label = v.get("label", k)
+            score = difflib.SequenceMatcher(
+                None,
+                slugify_name(nome),
+                slugify_name(label)
+            ).ratio()
+            if score > best_score:
+                best_score = score
+                best_key = k
+
+        if best_key and best_score >= 0.75:
+            data = NUTRIENTS[best_key]
+        else:
+            return 0.0
+
+    kcal_100 = float(data.get("kcal_per_100g", 0.0))
+    return (quantita_g * kcal_100) / 100.0
+
+
 def stima_fattore_scala(q_input, ricetta):
     """Scala la ricetta rispetto al peso totale del piatto."""
-    base_peso = float(ricetta.get("peso_totale_piatto_g", 300.0) or 300.0)
+    base_peso = float(ricetta.get("peso_totale_piatto_g", 300) or 300)
     q_norm = normalizza_unita(q_input)
     if q_norm <= 0:
         return 1.0
     return q_norm / base_peso
-
-
-def get_kcal_ingrediente(nome, quantita_g):
-    """
-    Calcola le kcal partendo da FoodData_Central.json (kcal/100g).
-    Usa prima match esatto, poi fuzzy match sulla colonna 'nome'.
-    """
-    nome_norm = normalizza_nome_alimento_py(nome)
-    if not nome_norm or quantita_g <= 0:
-        return 0.0
-
-    # 1) match esatto
-    for item in NUTRIENT_DB:
-        n_item = (item.get("nome") or "").lower().strip()
-        if n_item == nome_norm:
-            kcal100 = float(item.get("kcal_100g", 0) or 0)
-            return (quantita_g * kcal100) / 100.0
-
-    # 2) fuzzy match (se non trovato esatto)
-    best_item = None
-    best_score = 0.0
-    for item in NUTRIENT_DB:
-        n_item = (item.get("nome") or "").lower().strip()
-        if not n_item:
-            continue
-        score = difflib.SequenceMatcher(None, nome_norm, n_item).ratio()
-        if score > best_score:
-            best_score = score
-            best_item = item
-
-    if best_item is not None and best_score >= 0.7:
-        kcal100 = float(best_item.get("kcal_100g", 0) or 0)
-        return (quantita_g * kcal100) / 100.0
-
-    return 0.0
 
 
 def trova_ricetta(alimento_raw: str):
@@ -381,19 +256,19 @@ def trova_ricetta(alimento_raw: str):
       1) USER_RECIPES
       2) ITALIAN_RECIPES
     usando:
-      - match chiave diretto (nome → nome_con_underscore)
+      - match diretto su chiave
       - match parziale
-      - fuzzy match (similar_text like)
+      - fuzzy match
     """
     alimento_norm = normalizza_nome_piatto(alimento_raw)
     if not alimento_norm:
         return None, None
 
-    key_norm = alimento_norm.replace(" ", "_")
+    key_norm = slugify_name(alimento_norm)
 
     sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
 
-    # 1) match diretto su chiave normalizzata
+    # 1) match diretto chiave
     for source_name, src in sorgenti:
         if key_norm in src:
             return src[key_norm], source_name
@@ -401,10 +276,11 @@ def trova_ricetta(alimento_raw: str):
     # 2) match parziale su chiave
     for source_name, src in sorgenti:
         for k, rec in src.items():
-            if alimento_norm in k.replace("_", " "):
+            label_k = k.replace("_", " ")
+            if alimento_norm in label_k:
                 return rec, source_name
 
-    # 3) fuzzy match su chiave
+    # 3) fuzzy match
     best_rec = None
     best_src = None
     best_score = 0.0
@@ -425,22 +301,23 @@ def trova_ricetta(alimento_raw: str):
 
 def costruisci_ricetta_semplice(alimento_raw: str, quantita: str):
     """
-    Se non troviamo la ricetta nel JSON,
-    proviamo a creare un piatto semplice monocomponente usando FoodData_Central.
-    Esempio: “mela”, “pollo”, “riso”, ecc.
+    Per alimenti semplici (es. 'mela', '100 g pollo')
+    crea una ricetta monocomponente usando nutrients.json.
     """
-    alimento_norm = normalizza_nome_alimento_py(alimento_raw)
+    alimento_norm = normalizza_nome_piatto(alimento_raw)
     if not alimento_norm:
         return None
 
     q_g = normalizza_unita(quantita)
     if q_g <= 0:
-        q_g = 100.0  # fallback 100 g
+        q_g = 100.0
 
     kcal_tot = get_kcal_ingrediente(alimento_norm, q_g)
     if kcal_tot <= 0:
-        # non abbiamo info nutrizionali affidabili
-        return None
+        # riprova direttamente con raw
+        kcal_tot = get_kcal_ingrediente(alimento_raw, q_g)
+        if kcal_tot <= 0:
+            return None
 
     ricetta = {
         "titolo": alimento_raw.strip().capitalize() or alimento_norm.capitalize(),
@@ -453,6 +330,18 @@ def costruisci_ricetta_semplice(alimento_raw: str, quantita: str):
         ]
     }
     return ricetta
+
+
+def salva_ricetta_semplice_user(alimento_raw: str, ricetta: dict):
+    """
+    Salva la ricetta semplice in USER_RECIPES,
+    così la volta dopo /ai/meal la trova al volo.
+    """
+    key = slugify_name(alimento_raw)
+    if not key or not ricetta:
+        return
+    USER_RECIPES[key] = ricetta
+    save_user_recipes()
 
 
 # ===============================
@@ -502,12 +391,13 @@ def health():
         "routes": [
             "/ai/meal", "/ai/nutrizione", "/ai/ricetta",
             "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/chat"
-        ]
+        ],
+        "nutrients_items": len(NUTRIENTS)
     })
 
 
 # ===============================
-# ENDPOINT RICETTE (SIMPLE DEMO)
+# ENDPOINT RICETTE (SUGGERIMENTI)
 # ===============================
 @app.route("/ai/ricetta", methods=["POST"])
 @require_api_key
@@ -519,18 +409,8 @@ def ai_ricetta():
     preferenze = set(i.lower() for i in data.get("preferenze", []))
 
     recipes = pd.DataFrame([
-        {
-            "titolo": "Pasta al pomodoro",
-            "ingredienti": "pasta,pomodoro,olio,basilico",
-            "tempo": "15",
-            "descrizione": "Classico primo piatto"
-        },
-        {
-            "titolo": "Insalata mista",
-            "ingredienti": "lattuga,pomodoro,olio,aceto",
-            "tempo": "10",
-            "descrizione": "Fresca e leggera"
-        }
+        {"titolo": "Pasta al pomodoro", "ingredienti": "pasta,pomodoro,olio,basilico", "tempo": "15", "descrizione": "Classico primo piatto"},
+        {"titolo": "Insalata mista", "ingredienti": "lattuga,pomodoro,olio,aceto", "tempo": "10", "descrizione": "Fresca e leggera"}
     ])
 
     risultati = match_ricette(recipes, dispensa, allergie, preferenze)
@@ -552,7 +432,7 @@ def ai_procedimento():
 
 
 # ===============================
-# ENDPOINT MEAL (EVOLUTO)
+# ENDPOINT MEAL (NUOVO, SOLIDO)
 # ===============================
 @app.route("/ai/meal", methods=["POST"])
 @require_api_key
@@ -569,47 +449,39 @@ def ai_meal():
     ricetta, sorgente = trova_ricetta(alimento_raw)
     new_recipe = False
 
-    # 2) se non trovata, prova a costruire ricetta semplice da NUTRIENT_DB
+    # 2) se non trovata, prova a costruire ricetta semplice
     if ricetta is None:
         ricetta = costruisci_ricetta_semplice(alimento_raw, quantita)
         if ricetta is not None:
-            # salviamo in USER_RECIPES per usi futuri
-            key = normalizza_nome_piatto(alimento_raw).replace(" ", "_")
-            if key:
-                USER_RECIPES[key] = ricetta
-                save_user_recipes()
-                sorgente = "user"
-                new_recipe = True
+            salva_ricetta_semplice_user(alimento_raw, ricetta)
+            sorgente = "user"
+            new_recipe = True
 
-    # 3) se ancora nulla → errore (PHP userà fallback interno)
     if ricetta is None:
+        # qui PHP userà il suo fallback interno
         return jsonify({"error": "RICETTA_NON_TROVATA"}), 404
 
-    # 4) calcola fattore scala
+    # 3) calcola fattore scala
     fattore = stima_fattore_scala(quantita, ricetta)
 
     ingredienti_finali = []
     kcal_tot = 0.0
 
     for ing in ricetta.get("ingredienti", []):
-        try:
-            nome_raw = ing.get("nome", "")
-            base_q = float(ing.get("quantita_g", 0) or 0)
-        except Exception:
+        nome = ing.get("nome", "")
+        base_q = float(ing.get("quantita_g", 0) or 0)
+        if base_q <= 0:
             continue
 
         q_finale = base_q * fattore * porzioni
         if q_finale <= 0:
             continue
 
-        # normalizzo il nome dell'ingrediente per allinearlo alla dispensa
-        nome_norm = normalizza_nome_alimento_py(nome_raw)
-
-        kcal_ing = get_kcal_ingrediente(nome_norm, q_finale)
+        kcal_ing = get_kcal_ingrediente(nome, q_finale)
         kcal_tot += kcal_ing
 
         ingredienti_finali.append({
-            "nome": nome_norm or nome_raw,
+            "nome": nome,
             "quantita_g": round(q_finale, 1),
             "kcal": round(kcal_ing, 1)
         })
@@ -627,7 +499,7 @@ def ai_meal():
 
 
 # ===============================
-# ENDPOINT NUTRIZIONE
+# ENDPOINT NUTRIZIONE (BMI)
 # ===============================
 @app.route("/ai/nutrizione", methods=["POST"])
 @require_api_key
@@ -643,7 +515,7 @@ def ai_nutrizione():
 
 
 # ===============================
-# ENDPOINT DISPENSA
+# ENDPOINT DISPENSA (AVVISI)
 # ===============================
 @app.route("/ai/dispensa", methods=["POST"])
 @require_api_key
@@ -675,11 +547,7 @@ def ai_coach():
 @app.route("/ai/chat", methods=["POST"])
 def ai_chat_direct():
     try:
-        from chat import (
-            recupera_memoria,
-            genera_risposta_locale,
-            salva_conversazione
-        )
+        from chat import recupera_memoria, genera_risposta_locale, salva_conversazione
     except Exception as e:
         print("❌ Errore import chat.py:", e)
         return jsonify({"risposta": "Errore interno AI."}), 500
