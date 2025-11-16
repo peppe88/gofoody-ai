@@ -250,84 +250,157 @@ def get_kcal_ingrediente(nome, quantita_g):
     return (quantita_g * kcal100) / 100
 
 
-# ========= RICETTE =========
-def trova_ricetta(alimento_raw):
-    alimento = normalizza_nome_piatto(alimento_raw)
-    if not alimento:
-        return None, None
+# ============================================
+# =============  /ai/ricette  ================
+# ============================================
+import csv
+import random
+from flask import jsonify, request
 
-    slug = slugify_name(alimento)
-    if slug in NUTRIENTS:
-        return None, None
+RECIPES_CSV_PATH = "recipes.csv"  # percorso interno
 
-    sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
+def load_recipes_csv():
+    ricette = []
+    try:
+        with open(RECIPES_CSV_PATH, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                titolo = row.get("titolo", "").strip()
+                ingr   = row.get("ingredienti", "").strip()
+                tempo  = row.get("tempo", "").strip()
+                descr  = row.get("descrizione", "").strip()
 
-    for src_name, DB in sorgenti:
-        if slug in DB:
-            return DB[slug], src_name
+                if titolo and ingr:
+                    ingredienti = [i.strip().lower() for i in ingr.split(",") if i.strip()]
 
-    for src_name, DB in sorgenti:
-        for k in DB:
-            if alimento in k.replace("_", " "):
-                return DB[k], src_name
+                    ricette.append({
+                        "titolo": titolo,
+                        "ingredienti": ingredienti,
+                        "tempo": tempo,
+                        "descrizione": descr
+                    })
+    except Exception as e:
+        print("⚠️ Errore lettura recipes.csv:", e)
 
-    best = None
-    best_score = 0
-    for src_name, DB in sorgenti:
-        for k in DB:
-            score = difflib.SequenceMatcher(None, alimento, k.replace("_", " ")).ratio()
-            if score > best_score:
-                best = DB[k]
-                best_score = score
-
-    if best and best_score >= 0.75:
-        return best, "fuzzy"
-
-    return None, None
+    return ricette
 
 
-def costruisci_ricetta_semplice(alimento_raw, quantita):
-    alimento_norm = normalizza_nome_piatto(alimento_raw)
-    if not alimento_norm:
-        return None
+def normalizza(nome):
+    return nome.strip().lower()
 
-    slug = slugify_name(alimento_norm)
-    alias = ALIMENTI_ALIAS.get(slug)
-    if alias:
-        alimento_norm = alias.replace("_", " ")
 
-    q_g = quantita_to_grams(alimento_norm, quantita)
-    if q_g <= 0:
-        q_g = 100
+def copertura_ingredienti(ricetta_ingr, dispensa_norm):
+    tot = len(ricetta_ingr)
+    if tot == 0:
+        return 0
 
-    kcal_test = get_kcal_ingrediente(alimento_norm, q_g)
-    if kcal_test <= 0:
-        kcal_test = get_kcal_ingrediente(alimento_raw, q_g)
-        if kcal_test <= 0:
-            return None
+    match = 0
+    for ingr in ricetta_ingr:
+        if ingr in dispensa_norm:
+            match += 1
 
-    return {
-        "titolo": alimento_raw.capitalize(),
-        "peso_totale_piatto_g": q_g,
-        "ingredienti": [
-            {"nome": alimento_norm, "quantita_g": q_g}
+    return int((match / tot) * 100)
+
+
+def assegna_categoria(titolo, ingredienti):
+    titolo_l = titolo.lower()
+    ing = ",".join(ingredienti)
+
+    if "pasta" in ing or "riso" in ing or "cous" in ing or "quinoa" in ing:
+        return "Primo"
+    if "orata" in ing or "pollo" in ing or "carne" in ing or "pesce" in ing:
+        return "Secondo"
+    if "insalata" in titolo_l or "verdure" in titolo_l or "grigliate" in titolo_l:
+        return "Contorno"
+    return "Ricetta"
+
+
+GIORNI_SETTIMANA = [
+    "Lunedì", "Martedì", "Mercoledì",
+    "Giovedì", "Venerdì", "Sabato", "Domenica"
+]
+
+
+@app.route("/ai/ricette", methods=["POST"])
+def ai_ricette():
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+
+    dieta           = data.get("dieta", "Mediterranea")
+    cibi_no_raw     = data.get("cibi_non_graditi", "").lower()
+    dispensa        = data.get("dispensa", [])
+    max_ricette     = int(data.get("max_ricette", 8))
+
+    # Normalizzazione dispensa
+    dispensa_norm = [normalizza(x) for x in dispensa]
+
+    # Carica ricette CSV
+    tutte = load_recipes_csv()
+
+    if not tutte:
+        return jsonify({"ricette": []})
+
+    # --- FILTRO PER DIETA ---
+    dieta_norm = dieta.lower()
+
+    filtrate = []
+    for r in tutte:
+        ing = r["ingredienti"]
+
+        if dieta_norm == "vegana":
+            if any(i in ["uova","latte","formaggio","yogurt","burro","mozzarella","tonno","pesce","carne"] for i in ing):
+                continue
+
+        elif dieta_norm == "vegetariana":
+            if any(i in ["carne","pollo","tacchino","maiale","manzo","orata","pesce","tonno"] for i in ing):
+                continue
+
+        # mediterranea → nessun filtro speciale
+        filtrate.append(r)
+
+    # --- FILTRO CIBI NON GRADITI ---
+    if cibi_no_raw.strip() != "":
+        blocchi = [normalizza(x) for x in cibi_no_raw.split(",")]
+
+        filtrate = [
+            r for r in filtrate
+            if not any( b in r["titolo"].lower() or b in ",".join(r["ingredienti"]) for b in blocchi )
         ]
-    }
 
+    # Se non rimane nulla → fallback
+    if not filtrate:
+        filtrate = tutte
 
-def stima_fattore_scala(alimento_raw, quantita, ricetta):
-    base_peso = float(ricetta.get("peso_totale_piatto_g", 300) or 300)
-    richiesti = quantita_to_grams(alimento_raw, quantita)
-    if richiesti <= 0:
-        return 1.0
-    return richiesti / base_peso
+    # --- CALCOLO COPERTURA DISPONIBILITÀ ---
+    ricette_fin = []
+    for r in filtrate:
+        cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
 
+        ricette_fin.append({
+            "titolo": r["titolo"],
+            "ingredienti": r["ingredienti"],
+            "tempo": r["tempo"],
+            "descrizione": r["descrizione"],
+            "copertura": cop,
+            "categoria": assegna_categoria(r["titolo"], r["ingredienti"])
+        })
 
-def salva_ricetta_semplice_user(alimento_raw, ricetta):
-    key = slugify_name(alimento_raw)
-    USER_RECIPES[key] = ricetta
-    with open(USER_RECIPES_PATH, "w", encoding="utf-8") as f:
-        json.dump(USER_RECIPES, f, ensure_ascii=False, indent=2)
+    # Ordino: prima le più fattibili
+    ricette_fin.sort(key=lambda x: x["copertura"], reverse=True)
+
+    # Taglio al numero richiesto
+    ricette_fin = ricette_fin[:max_ricette]
+
+    # Assegna giorni settimana in modo casuale
+    giorni = GIORNI_SETTIMANA.copy()
+    random.shuffle(giorni)
+
+    for i, r in enumerate(ricette_fin):
+        r["giorno"] = giorni[i % 7]
+
+    return jsonify({"ricette": ricette_fin})
 
 
 # ===============================
