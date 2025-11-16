@@ -7,6 +7,9 @@ import json
 import difflib
 import unicodedata
 import re
+import csv
+import random
+from flask import jsonify, request
 
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
@@ -253,9 +256,6 @@ def get_kcal_ingrediente(nome, quantita_g):
 # ============================================
 # =============  /ai/ricette  ================
 # ============================================
-import csv
-import random
-from flask import jsonify, request
 
 RECIPES_CSV_PATH = "recipes.csv"  # percorso interno
 
