@@ -9,7 +9,6 @@ import unicodedata
 import re
 import csv
 import random
-from flask import jsonify, request
 
 # ===============================
 # MODULI LOCALI (IMPORT PRINCIPALI)
