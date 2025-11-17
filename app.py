@@ -470,15 +470,61 @@ API_KEY = os.getenv(
     "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
 )
 
+# =====================================================
+# MAPPA DI EQUIVALENZA INGREDIENTI (AMPLIABILE)
+# =====================================================
+EQUIVALENZE = {
+    "pomodoro": ["passata di pomodoro", "polpa di pomodoro", "pomodori pelati", "sugo di pomodoro"],
+    "passata di pomodoro": ["pomodoro", "polpa di pomodoro", "pomodori pelati"],
+    "pasta": ["penne", "spaghetti", "rigatoni", "farfalle", "fusilli", "maccheroni", "linguine"],
+    "olio": ["olio extravergine di oliva", "olio evo", "olio d'oliva"],
+    "cipolla": ["cipolle", "cipolla bianca", "cipolla rossa", "cipolla dorata"],
+    "carota": ["carote"],
+    "zucchina": ["zucchine"],
+    "melanzana": ["melanzane"],
+}
+
+
 # ===============================
 # COPERTURA INGREDIENTI DISPENSA
 # ===============================
 def copertura_ingredienti(ricetta_ingr, dispensa_norm):
+    def is_match(ing, disp_item):
+        ing = ing.lower().strip()
+        disp_item = disp_item.lower().strip()
+
+        # Match diretto
+        if ing == disp_item:
+            return True
+
+        # Match tramite equivalenze
+        if ing in EQUIVALENZE and disp_item in EQUIVALENZE[ing]:
+            return True
+
+        # Reverse equivalenza
+        for k, lista in EQUIVALENZE.items():
+            if ing == k and disp_item in lista:
+                return True
+            if disp_item == k and ing in lista:
+                return True
+
+        # Fuzzy match intelligente
+        if difflib.SequenceMatcher(None, ing, disp_item).ratio() >= 0.70:
+            return True
+
+        return False
+
     tot = len(ricetta_ingr)
     if tot == 0:
         return 0
 
-    match = sum(1 for ingr in ricetta_ingr if ingr in dispensa_norm)
+    match = 0
+    for ingr in ricetta_ingr:
+        for d in dispensa_norm:
+            if is_match(ingr, d):
+                match += 1
+                break
+
     return int((match / tot) * 100)
 
 
