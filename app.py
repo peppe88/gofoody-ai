@@ -451,6 +451,24 @@ def load_recipes_csv():
 def normalizza(nome):
     return (nome or "").strip().lower()
 
+# ===============================
+# FLASK BASE
+# ===============================
+app = Flask(__name__)
+CORS(app, resources={r"/ai/*": {"origins": "*"}}, supports_credentials=False)
+
+# Registra le rotte Chat AI solo se disponibili
+if register_chat_routes:
+    register_chat_routes(app)
+else:
+    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
+
+
+# Chiave segreta per chiamate da PHP
+API_KEY = os.getenv(
+    "AI_KEY",
+    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
+)
 
 # ===============================
 # COPERTURA INGREDIENTI DISPENSA
@@ -587,24 +605,6 @@ def ai_ricette():
         r["giorno"] = giorni[i % len(giorni)]
 
     return jsonify({"ricette": ricette_fin})
-# ===============================
-# FLASK BASE
-# ===============================
-app = Flask(__name__)
-CORS(app, resources={r"/ai/*": {"origins": "*"}}, supports_credentials=False)
-
-# Registra le rotte Chat AI solo se disponibili
-if register_chat_routes:
-    register_chat_routes(app)
-else:
-    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
-
-
-# Chiave segreta per chiamate da PHP
-API_KEY = os.getenv(
-    "AI_KEY",
-    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
-)
 
 
 # ===============================
