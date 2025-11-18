@@ -650,8 +650,9 @@ def ai_ricette():
                         "descrizione": descr
                     })
 
-    if not ricette:
-        return jsonify({"ricette": []})
+    if not ricette_fin:
+        print("⚠️ Nessuna ricetta supera copertura ingredienti")
+            return jsonify({"ricette": ricette_filtrate[:1]})  # fallback: restituiamo una ricetta
 
     # Filtra per cibi non graditi
     cibi_no = [c.strip() for c in cibi_no_raw.split(",") if c.strip()]
