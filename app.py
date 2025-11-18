@@ -278,6 +278,44 @@ def get_kcal_ingrediente(nome, quantita_g):
     kcal100 = float(data.get("kcal_per_100g", 0.0))
     return (quantita_g * kcal100) / 100.0
 
+def canonicalizza_alimento(nome: str) -> str:
+    """
+    Porta un nome di ingrediente a una forma canonica usando:
+    - normalizza_nome_piatto
+    - slugify_name
+    - ALIMENTI_ALIAS
+    - chiavi di NUTRIENTS (solo se il match fuzzy è abbastanza alto)
+    """
+    if not nome:
+        return ""
+    base = normalizza_nome_piatto(nome)
+    slug = slugify_name(base)
+
+    # Applica alias (pomodorini -> pomodoro, mele -> mela, ecc.)
+    alias = ALIMENTI_ALIAS.get(slug)
+    if alias:
+        slug = alias
+
+    # Se è già presente nel DB nutrizionale lo considero definitivo
+    if slug in NUTRIENTS:
+        return slug
+
+    # Fallback fuzzy SOLO se il nome non è tipo "food_123"
+    if not slug.startswith("food_"):
+        best_key = None
+        best_score = 0.0
+        for k in NUTRIENTS.keys():
+            if k.startswith("food_"):
+                continue
+            s = difflib.SequenceMatcher(None, slug, k).ratio()
+            if s > best_score:
+                best_score = s
+                best_key = k
+        if best_key and best_score >= 0.82:
+            return best_key
+
+    return slug
+
 
 # ===============================
 # FUNZIONI RICETTE BASE / SEMPLICI
@@ -489,7 +527,18 @@ EQUIVALENZE = {
 # COPERTURA INGREDIENTI DISPENSA
 # ===============================
 def copertura_ingredienti(ricetta_ingr, dispensa_norm):
-    def is_match(ing, disp_item):
+    """
+    Restituisce la percentuale di ingredienti della ricetta coperti
+    da ciò che c'è in dispensa, usando:
+    - match diretto
+    - equivalenze statiche EQUIVALENZE
+    - forma canonica basata su nutrients.json (canonicalizza_alimento)
+    - fuzzy match di fallback
+    """
+    # Pre-calcolo forme canoniche della dispensa
+    dispensa_canon = [canonicalizza_alimento(d) for d in dispensa_norm]
+
+    def is_match(ing, disp_item, disp_canon):
         ing = ing.lower().strip()
         disp_item = disp_item.lower().strip()
 
@@ -497,7 +546,7 @@ def copertura_ingredienti(ricetta_ingr, dispensa_norm):
         if ing == disp_item:
             return True
 
-        # Match tramite equivalenze
+        # Match tramite equivalenze "statiche"
         if ing in EQUIVALENZE and disp_item in EQUIVALENZE[ing]:
             return True
 
@@ -508,8 +557,13 @@ def copertura_ingredienti(ricetta_ingr, dispensa_norm):
             if disp_item == k and ing in lista:
                 return True
 
-        # Fuzzy match intelligente
-        if difflib.SequenceMatcher(None, ing, disp_item).ratio() >= 0.70:
+        # Match per forma canonica (nutrients + alias)
+        ing_canon = canonicalizza_alimento(ing)
+        if ing_canon and ing_canon == disp_canon:
+            return True
+
+        # Fuzzy match intelligente come ultimo fallback
+        if difflib.SequenceMatcher(None, ing, disp_item).ratio() >= 0.75:
             return True
 
         return False
@@ -520,8 +574,8 @@ def copertura_ingredienti(ricetta_ingr, dispensa_norm):
 
     match = 0
     for ingr in ricetta_ingr:
-        for d in dispensa_norm:
-            if is_match(ingr, d):
+        for d_raw, d_canon in zip(dispensa_norm, dispensa_canon):
+            if is_match(ingr, d_raw, d_canon):
                 match += 1
                 break
 
@@ -563,19 +617,88 @@ def ai_ricette():
     dieta           = data.get("dieta", "Mediterranea")
     cibi_no_raw     = (data.get("cibi_non_graditi") or "").lower()
     dispensa        = data.get("dispensa", [])
-    max_ricette     = int(data.get("max_ricette", 7))  # default 7 (1 per giorno)
+    # il client può chiedere meno di 5, ma non più di 5 pasti "da dietologo"
+    max_ricette_req = int(data.get("max_ricette", 5))
+    max_ricette     = max(1, min(5, max_ricette_req))
 
     # Normalizza dispensa
     dispensa_norm = [normalizza(x) for x in dispensa]
 
     # Carica database CSV
-    tutte = load_recipes_csv()
+    csv_path = os.path.join(BASE_DIR, "recipes.csv")
+    ricette = []
+    if os.path.exists(csv_path):
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                titolo = (row.get("titolo") or "").strip()
+                ingr   = (row.get("ingredienti") or "").strip()
+                tempo  = (row.get("tempo") or "").strip()
+                descr  = (row.get("descrizione") or "").strip()
 
-    if not tutte:
+                if titolo and ingr:
+                    ingredienti = [
+                        i.strip().lower()
+                        for i in ingr.split(",")
+                        if i.strip()
+                    ]
+
+                    ricette.append({
+                        "titolo": titolo,
+                        "ingredienti": ingredienti,
+                        "tempo": tempo,
+                        "descrizione": descr
+                    })
+
+    if not ricette:
         return jsonify({"ricette": []})
 
-    dieta_norm = dieta.lower()
-    filtrate = []
+    # Filtra per cibi non graditi
+    cibi_no = [c.strip() for c in cibi_no_raw.split(",") if c.strip()]
+    ricette_filtrate = []
+    for r in ricette:
+        skip = False
+        for no in cibi_no:
+            if no and no in r["descrizione"].lower():
+                skip = True
+                break
+        if not skip:
+            ricette_filtrate.append(r)
+
+    if not ricette_filtrate:
+        ricette_filtrate = ricette
+
+    # Calcola copertura ingredienti e categoria "umana"
+    ricette_fin = []
+    for r in ricette_filtrate:
+        cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
+        if cop == 0:
+            continue
+
+        ricette_fin.append({
+            "titolo": r["titolo"],
+            "ingredienti": r["ingredienti"],
+            "tempo": r["tempo"],
+            "descrizione": r["descrizione"],
+            "copertura": cop,
+            "categoria": assegna_categoria(r["titolo"], r["ingredienti"])
+        })
+
+    if not ricette_fin:
+        return jsonify({"ricette": []})
+
+    # Ordino per copertura (ingredienti già in casa)
+    ricette_fin.sort(key=lambda x: x["copertura"], reverse=True)
+
+    # Tengo solo il numero di pasti richiesto (max 5)
+    ricette_fin = ricette_fin[:max_ricette]
+
+    # Assegno il "ruolo" del pasto (colazione / spuntino / pranzo / spuntino / cena)
+    for idx, r in enumerate(ricette_fin):
+        r["pasto"] = PASTI_GIORNO[idx]
+
+    return jsonify({"ricette": ricette_fin})
+
 
     # ===============================
     # FILTRO DIETA
