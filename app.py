@@ -699,7 +699,88 @@ def ai_ricette():
 
     return jsonify({"ricette": ricette_fin})
 
+# ===============================
+# /ai/ricette  → RIGENERA UNA SINGOLA RICETTA NELLA CARD
+# ===============================
 
+@app.route("/ai/ricetta_singola", methods=["POST"])
+def ai_ricetta_singola():
+    if not verifica_chiave():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(force=True)
+    dieta       = data.get("dieta", "Mediterranea")
+    cibi_no_raw = (data.get("cibi_non_graditi") or "").lower()
+    dispensa    = data.get("dispensa", [])
+    pasto       = data.get("pasto", "")
+
+    if not pasto:
+        return jsonify({"error": "Missing 'pasto'"}), 400
+
+    # Normalizza dispensa
+    dispensa_norm = [normalizza(x) for x in dispensa]
+
+    # Carico CSV
+    csv_path = os.path.join(BASE_DIR, "recipes.csv")
+    ricette = []
+    if os.path.exists(csv_path):
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                titolo = (row.get("titolo") or "").strip()
+                ingr   = (row.get("ingredienti") or "").strip()
+                tempo  = (row.get("tempo") or "").strip()
+                descr  = (row.get("descrizione") or "").strip()
+
+                if titolo and ingr:
+                    ingredienti = [i.strip().lower() for i in ingr.split(",") if i.strip()]
+                    ricette.append({
+                        "titolo": titolo,
+                        "ingredienti": ingredienti,
+                        "tempo": tempo,
+                        "descrizione": descr
+                    })
+
+    # filtro cibi non graditi
+    cibi_no = [c.strip() for c in cibi_no_raw.split(",") if c.strip()]
+    ricette_filtrate = []
+    for r in ricette:
+        skip = False
+        for no in cibi_no:
+            if no in r["descrizione"].lower():
+                skip = True
+                break
+        if not skip:
+            ricette_filtrate.append(r)
+
+    if not ricette_filtrate:
+        ricette_filtrate = ricette
+
+    # calcolo copertura
+    scored = []
+    for r in ricette_filtrate:
+        cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
+        if cop == 0:
+            continue
+
+        scored.append({
+            "titolo": r["titolo"],
+            "ingredienti": r["ingredienti"],
+            "tempo": r["tempo"],
+            "descrizione": r["descrizione"],
+            "copertura": cop,
+            "categoria": assegna_categoria(r["titolo"], r["ingredienti"]),
+            "pasto": pasto
+        })
+
+    if not scored:
+        return jsonify({"ricetta": None})
+
+    # Ordino e prendo la migliore
+    scored.sort(key=lambda x: x["copertura"], reverse=True)
+    return jsonify({"ricetta": scored[0]})
+
+    
     # ===============================
     # FILTRO DIETA
     # ===============================
