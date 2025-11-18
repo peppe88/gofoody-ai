@@ -71,7 +71,7 @@ except ImportError as e:
             "4️⃣ Servi caldo!"
         )
 
-    register_chat_routes = None
+    
 
 # ===============================
 # PATH BASE E DATI
