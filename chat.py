@@ -95,7 +95,7 @@ def register_chat_routes(app):
     """Registra l’endpoint /ai/chat nell’app Flask"""
 
     @app.route("/ai/chat", methods=["POST"])
-    def ai_chat():
+def ai_chat():
         try:
             data = request.get_json(force=True, silent=True) or {}
             prompt = data.get("prompt", "").strip()
