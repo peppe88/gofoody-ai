@@ -10,31 +10,22 @@ import re
 import csv
 import random
 
-# ===============================
-# MODULI LOCALI (IMPORT PRINCIPALI)
-# ===============================
-try:
-    from nutrition_ai import calcola_bmi
-    from dispensa_ai import suggerisci_usi
-    from coach import genera_messaggio
-    from utils import match_ricette, genera_procedimento
-    from chat import register_chat_routes
-    
-    print("✅ Moduli AI caricati correttamente.")
+# =====================================================
+# Assicura che Python possa trovare i moduli locali
+# =====================================================
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# except ImportError as e:
-    # ⚠️ BLOCCO DISABILITATO PER PERMETTERE ALLA CHAT DI FUNZIONARE
-    # print("⚠️ Errore import moduli AI:", e)
-    #
-    # def calcola_bmi(...): ...
-    # def suggerisci_usi(...): ...
-    # def genera_messaggio(...): ...
-    # def match_ricette(...): ...
-    # def genera_procedimento(...): ...
-    #
-    # (QUESTO BLOCCO CREAVA REGISTER_CHAT_ROUTES = None E BLOCCAVA LA CHAT)
-    #
-  #  raise e   # MOSTRA L’ERRORE REALE SE MANCANO FILE
+# =====================================================
+# IMPORT MODULI LOCALI (CHAT ORA FUNZIONA)
+# =====================================================
+from nutrition_ai import calcola_bmi
+from dispensa_ai import suggerisci_usi
+from coach import genera_messaggio
+from utils import match_ricette, genera_procedimento
+from chat import register_chat_routes
+
+print("✅ Moduli AI caricati correttamente.")
 
 # ===============================
 # PATH BASE E DATI
