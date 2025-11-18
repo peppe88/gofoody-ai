@@ -22,7 +22,7 @@ try:
     
     print("✅ Moduli AI caricati correttamente.")
 
-except ImportError as e:
+# except ImportError as e:
     # ⚠️ BLOCCO DISABILITATO PER PERMETTERE ALLA CHAT DI FUNZIONARE
     # print("⚠️ Errore import moduli AI:", e)
     #
@@ -34,7 +34,7 @@ except ImportError as e:
     #
     # (QUESTO BLOCCO CREAVA REGISTER_CHAT_ROUTES = None E BLOCCAVA LA CHAT)
     #
-    raise e   # MOSTRA L’ERRORE REALE SE MANCANO FILE
+  #  raise e   # MOSTRA L’ERRORE REALE SE MANCANO FILE
 
 # ===============================
 # PATH BASE E DATI
