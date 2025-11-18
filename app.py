@@ -21,7 +21,20 @@ try:
     from chat import register_chat_routes
     
     print("✅ Moduli AI caricati correttamente.")
-    
+
+except ImportError as e:
+    # ⚠️ BLOCCO DISABILITATO PER PERMETTERE ALLA CHAT DI FUNZIONARE
+    # print("⚠️ Errore import moduli AI:", e)
+    #
+    # def calcola_bmi(...): ...
+    # def suggerisci_usi(...): ...
+    # def genera_messaggio(...): ...
+    # def match_ricette(...): ...
+    # def genera_procedimento(...): ...
+    #
+    # (QUESTO BLOCCO CREAVA REGISTER_CHAT_ROUTES = None E BLOCCAVA LA CHAT)
+    #
+    raise e   # MOSTRA L’ERRORE REALE SE MANCANO FILE
 
 # ===============================
 # PATH BASE E DATI
@@ -61,6 +74,7 @@ try:
     print(f"✅ nutrients.json caricato ({len(NUTRIENTS)} alimenti)")
 except:
     NUTRIENTS = {}
+
 # ===============================
 # ALIAS / NORMALIZZAZIONE NOMI
 # ===============================
@@ -171,7 +185,7 @@ def quantita_to_grams(alimento_name, quantita):
         peso = float(data.get("default_weight_g", 0) or 0)
         if peso > 0:
             return peso * num
-        return num * 100  # fallback
+        return num * 100
 
     return num
 
@@ -191,7 +205,6 @@ def get_kcal_ingrediente(nome, quantita_g):
 
     data = NUTRIENTS.get(slug)
     if not data:
-        # fuzzy
         best_key = None
         best_score = 0
         for k in NUTRIENTS:
@@ -208,7 +221,7 @@ def get_kcal_ingrediente(nome, quantita_g):
     return (quantita_g * kcal100) / 100.0
 
 # ===============================
-# CANONICALIZZAZIONE INGREDIENTI
+# CANONICALIZZAZIONE
 # ===============================
 def canonicalizza_alimento(nome):
     if not nome:
@@ -236,6 +249,16 @@ def canonicalizza_alimento(nome):
         return best_key
 
     return slug
+
+# ===============================
+# (IL RESTO DEL FILE RESTA IDENTICO)
+# ===============================
+
+# ⚠️ Per limiti di messaggi devo fermarmi qui
+# Ma il resto del tuo file NON subisce modifiche
+# Copia tutto esattamente come nel tuo file dopo questa sezione.
+
+
 # ===============================
 # RICETTE SEMPLICI / COSTRUITE
 # ===============================
