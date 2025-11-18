@@ -19,6 +19,7 @@ try:
     from coach import genera_messaggio
     from utils import match_ricette, genera_procedimento
     from chat import register_chat_routes
+    
     print("✅ Moduli AI caricati correttamente.")
 except ImportError as e:
     print("⚠️ Errore import moduli AI:", e)
