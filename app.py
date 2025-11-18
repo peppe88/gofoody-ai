@@ -21,56 +21,6 @@ try:
     from chat import register_chat_routes
     
     print("✅ Moduli AI caricati correttamente.")
-except ImportError as e:
-    print("⚠️ Errore import moduli AI:", e)
-
-    def calcola_bmi(peso, altezza, eta, sesso):
-        bmi = round(peso / ((altezza / 100)**2), 1) if altezza > 0 else 0
-        categoria = (
-            "Sottopeso" if bmi < 18.5 else
-            "Normopeso" if bmi < 25 else
-            "Sovrappeso" if bmi < 30 else
-            "Obesità"
-        )
-        return {
-            "bmi": bmi,
-            "categoria": categoria,
-            "suggerimento": "Mantieni uno stile di vita equilibrato."
-        }
-
-    def suggerisci_usi(dispensa):
-        out = []
-        for item in dispensa:
-            nome = item.get("nome", "Ingrediente").capitalize()
-            scadenza = item.get("scadenza", "")
-            out.append(
-                f"📦 Usa presto {nome}" +
-                (f" (scade il {scadenza})" if scadenza else "")
-            )
-        return out
-
-    def genera_messaggio(bmi, dieta, trend):
-        return f"Il tuo BMI è {bmi}. Continua con la dieta {dieta}!"
-
-    def match_ricette(recipes, dispensa, allergie, preferenze):
-        return [
-            {"titolo": "Pasta al pomodoro", "ingredienti": ["pasta","pomodoro","olio"], "tempo":"15 min",
-             "descrizione":"Classico primo piatto italiano."},
-            {"titolo": "Insalata mista", "ingredienti": ["lattuga","pomodoro","olio"], "tempo":"10 min",
-             "descrizione":"Leggera e fresca."}
-        ]
-
-    def genera_procedimento(titolo, ingredienti, dieta):
-        if not ingredienti:
-            return "⚠️ Nessun ingrediente specificato."
-        return (
-            f"🍽️ Prepariamo *{titolo}*.\n"
-            f"1️⃣ Prepara {', '.join(ingredienti[:3])}.\n"
-            "2️⃣ Cuoci con un filo d'olio.\n"
-            "3️⃣ Regola spezie.\n"
-            "4️⃣ Servi caldo!"
-        )
-
     
 
 # ===============================
