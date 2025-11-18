@@ -83,8 +83,7 @@ try:
     if not isinstance(ITALIAN_RECIPES, dict):
         ITALIAN_RECIPES = {}
     print("✅ italian_recipes.json caricato")
-except Exception as e:
-    print("❌ Errore:", e)
+except:
     ITALIAN_RECIPES = {}
 
 # ------- RICETTE UTENTE -------
@@ -110,8 +109,6 @@ try:
     print(f"✅ nutrients.json caricato ({len(NUTRIENTS)} alimenti)")
 except:
     NUTRIENTS = {}
-
-
 # ===============================
 # ALIAS ALIMENTI
 # ===============================
@@ -144,6 +141,7 @@ ALIMENTI_ALIAS = {
     "rigatoni": "pasta_secca",
     "farfalle": "pasta_secca",
 }
+
 # ===============================
 # FUNZIONI BASE DI NORMALIZZAZIONE
 # ===============================
@@ -152,7 +150,6 @@ def strip_accents(s):
         c for c in unicodedata.normalize('NFD', s)
         if unicodedata.category(c) != 'Mn'
     )
-
 
 def slugify_name(name):
     """Converte 'Passata di pomodoro' → 'passata_di_pomodoro'."""
@@ -164,9 +161,8 @@ def slugify_name(name):
     s = re.sub(r"_+", "_", s).strip("_")
     return s
 
-
 def normalizza_nome_piatto(nome: str) -> str:
-    """Normalizza il nome del piatto per match/ricerca."""
+    """Normalizza nomi alimenti/pietanze per fuzzy match."""
     if not isinstance(nome, str):
         return ""
     s = nome.lower().strip()
@@ -184,15 +180,14 @@ def normalizza_nome_piatto(nome: str) -> str:
     parole = [p for p in s.split() if p not in STOP]
     return " ".join(parole).strip()
 
+def normalizza(nome):
+    return (nome or "").strip().lower()
 
 # ===============================
-# QUANTITÀ → GRAMMI
+# CONVERSIONE QUANTITÀ → GRAMMI
 # ===============================
 def quantita_to_grams(alimento_name, quantita):
-    """
-    Converte input (es. '1 kg', '200 g', '2 pz') in grammi.
-    Usa default_weight_g da nutrients.json per i pezzi, quando disponibile.
-    """
+    """Interpreta '1 kg', '200 g', '2 pz', '3', ecc. in grammi."""
     if isinstance(quantita, (int, float)):
         s = str(quantita)
     else:
@@ -203,26 +198,20 @@ def quantita_to_grams(alimento_name, quantita):
         return 0.0
     num = float(m.group(1))
 
-    # unità di peso esplicite
+    # unità esplicite
     if "kg" in s:
         return num * 1000
     if "mg" in s:
         return num / 1000
     if "ml" in s:
-        return num           # approx 1 ml ≈ 1 g
+        return num          # approx liquidi = gr
     if "l" in s and "ml" not in s:
         return num * 1000
     if "g" in s:
         return num
 
-    # pezzi (pz / pezzo / pezzi / numeri piccoli senza unità)
-    is_piece = (
-        "pz" in s or
-        "pezzo" in s or
-        "pezzi" in s or
-        num <= 5
-    )
-
+    # pezzi → cerca peso da nutrients.json
+    is_piece = ("pz" in s or "pezzo" in s or "pezzi" in s or num <= 5)
     if is_piece:
         slug = slugify_name(normalizza_nome_piatto(alimento_name))
         alias = ALIMENTI_ALIAS.get(slug)
@@ -235,21 +224,16 @@ def quantita_to_grams(alimento_name, quantita):
         if peso_default > 0:
             return peso_default * num
 
-        # fallback: 1 pezzo ≈ 100 g
-        return num * 100
+        return num * 100  # fallback
 
     # nessuna unità → interpreto come grammi
     return num
-
 
 # ===============================
 # KCAL PER INGREDIENTE
 # ===============================
 def get_kcal_ingrediente(nome, quantita_g):
-    """
-    Calcola le kcal per un ingrediente usando nutrients.json.
-    Usa alias (mela/mele, pomodorini/pomodoro, ecc.) e fuzzy-match di fallback.
-    """
+    """Calcola le kcal usando nutrients.json + fuzzy fallback."""
     if quantita_g <= 0:
         return 0.0
 
@@ -262,15 +246,13 @@ def get_kcal_ingrediente(nome, quantita_g):
 
     data = NUTRIENTS.get(slug)
     if not data:
-        # fuzzy fallback sullo slug
-        best_key = None
-        best_score = 0.0
-        for k, v in NUTRIENTS.items():
+        # fuzzy match
+        best_key, best_score = None, 0
+        for k in NUTRIENTS.keys():
             score = difflib.SequenceMatcher(None, slug, k).ratio()
             if score > best_score:
-                best_score = score
-                best_key = k
-        if best_key and best_score > 0.75:
+                best_score, best_key = score, k
+        if best_key and best_score >= 0.75:
             data = NUTRIENTS[best_key]
         else:
             return 0.0
@@ -278,106 +260,43 @@ def get_kcal_ingrediente(nome, quantita_g):
     kcal100 = float(data.get("kcal_per_100g", 0.0))
     return (quantita_g * kcal100) / 100.0
 
+# ===============================
+# CANONICALIZZAZIONE INGREDIENTI
+# ===============================
 def canonicalizza_alimento(nome: str) -> str:
-    """
-    Porta un nome di ingrediente a una forma canonica usando:
-    - normalizza_nome_piatto
-    - slugify_name
-    - ALIMENTI_ALIAS
-    - chiavi di NUTRIENTS (solo se il match fuzzy è abbastanza alto)
-    """
+    """Usa alias + nutrients + fuzzy per un nome uniforme."""
     if not nome:
         return ""
     base = normalizza_nome_piatto(nome)
     slug = slugify_name(base)
 
-    # Applica alias (pomodorini -> pomodoro, mele -> mela, ecc.)
+    # alias
     alias = ALIMENTI_ALIAS.get(slug)
     if alias:
         slug = alias
 
-    # Se è già presente nel DB nutrizionale lo considero definitivo
+    # match diretto
     if slug in NUTRIENTS:
         return slug
 
-    # Fallback fuzzy SOLO se il nome non è tipo "food_123"
-    if not slug.startswith("food_"):
-        best_key = None
-        best_score = 0.0
-        for k in NUTRIENTS.keys():
-            if k.startswith("food_"):
-                continue
-            s = difflib.SequenceMatcher(None, slug, k).ratio()
-            if s > best_score:
-                best_score = s
-                best_key = k
-        if best_key and best_score >= 0.82:
-            return best_key
+    # fuzzy
+    best_key, best_score = None, 0
+    for k in NUTRIENTS.keys():
+        if k.startswith("food_"):
+            continue
+        score = difflib.SequenceMatcher(None, slug, k).ratio()
+        if score > best_score:
+            best_key, best_score = k, score
+
+    if best_key and best_score >= 0.82:
+        return best_key
 
     return slug
 
-
 # ===============================
-# FUNZIONI RICETTE BASE / SEMPLICI
+# COSTRUZIONE RICETTA SEMPLICE
 # ===============================
-def trova_ricetta(alimento_raw):
-    """
-    Cerca una ricetta tra:
-      - USER_RECIPES (create dall'utente/app)
-      - ITALIAN_RECIPES (base)
-    Se l'alimento è presente in NUTRIENTS come alimento semplice,
-    NON ritorna una ricetta (verrà usata la ricetta semplice).
-    """
-    alimento = normalizza_nome_piatto(alimento_raw)
-    if not alimento:
-        return None, None
-
-    slug = slugify_name(alimento)
-
-    # Se è un alimento base (presente nel DB nutrizionale) → niente ricetta predefinita
-    if slug in NUTRIENTS:
-        return None, None
-
-    sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
-
-    # 1) match diretto sulla chiave
-    for src_name, DB in sorgenti:
-        if slug in DB:
-            return DB[slug], src_name
-
-    # 2) match parziale sul nome
-    for src_name, DB in sorgenti:
-        for k in DB:
-            if alimento in k.replace("_", " "):
-                return DB[k], src_name
-
-    # 3) fuzzy match sul nome
-    best = None
-    best_score = 0.0
-    best_src = None
-    for src_name, DB in sorgenti:
-        for k in DB:
-            score = difflib.SequenceMatcher(
-                None,
-                alimento,
-                k.replace("_", " ")
-            ).ratio()
-            if score > best_score:
-                best_score = score
-                best = DB[k]
-                best_src = src_name
-
-    if best and best_score >= 0.75:
-        return best, best_src or "fuzzy"
-
-    return None, None
-
-
 def costruisci_ricetta_semplice(alimento_raw, quantita):
-    """
-    Se non esiste una ricetta composta, costruisce una ricetta semplice monocomponente
-    usando nutrients.json (es. 'mela', 'banana', '100 g pollo' ecc.).
-    """
     alimento_norm = normalizza_nome_piatto(alimento_raw)
     if not alimento_norm:
         return None
@@ -389,7 +308,7 @@ def costruisci_ricetta_semplice(alimento_raw, quantita):
 
     q_g = quantita_to_grams(alimento_norm, quantita)
     if q_g <= 0:
-        q_g = 100.0  # fallback
+        q_g = 100.0
 
     kcal_test = get_kcal_ingrediente(alimento_norm, q_g)
     if kcal_test <= 0:
@@ -398,119 +317,40 @@ def costruisci_ricetta_semplice(alimento_raw, quantita):
             return None
 
     return {
-        "titolo": alimento_raw.strip().capitalize() or alimento_norm.capitalize(),
+        "titolo": alimento_raw.strip().capitalize(),
         "peso_totale_piatto_g": q_g,
         "ingredienti": [
-            {
-                "nome": alimento_norm,
-                "quantita_g": q_g
-            }
+            {"nome": alimento_norm, "quantita_g": q_g}
         ]
     }
 
-
+# ===============================
+# FATTORI DI SCALA
+# ===============================
 def stima_fattore_scala(alimento_raw, quantita, ricetta):
-    """
-    Scala la ricetta rispetto al peso totale del piatto.
-    Per piatti composti:
-      fattore = grammi_richiesti / peso_totale_piatto
-    Per alimenti semplici:
-      il peso_totale_piatto_g è già impostato alla quantità richiesta → fattore ~1.
-    """
     base_peso = float(ricetta.get("peso_totale_piatto_g", 300) or 300)
     richiesti = quantita_to_grams(alimento_raw, quantita)
+
     if richiesti <= 0 or base_peso <= 0:
         return 1.0
+
     return richiesti / base_peso
 
-
 def salva_ricetta_semplice_user(alimento_raw, ricetta):
-    """
-    Salva la ricetta semplice in USER_RECIPES, così /ai/meal è più veloce
-    le volte successive.
-    """
     key = slugify_name(alimento_raw)
     if not key or not ricetta:
         return
+
     USER_RECIPES[key] = ricetta
     try:
         with open(USER_RECIPES_PATH, "w", encoding="utf-8") as f:
             json.dump(USER_RECIPES, f, ensure_ascii=False, indent=2)
         print("💾 user_recipes.json aggiornato")
-    except Exception as e:
-        print("❌ Errore salvataggio user_recipes.json:", e)
+    except:
+        pass
 # ===============================
-# VERIFICA API KEY USATA PER /ai/ricette
+# EQUIVALENZE AVANZATE INGREDIENTI
 # ===============================
-def verifica_chiave():
-    """Controlla l’API KEY nella chiamata lato app PHP."""
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return False
-    token = auth.replace("Bearer ", "").strip()
-    return token == API_KEY
-
-
-# ===============================
-# RICETTE CSV
-# ===============================
-RECIPES_CSV_PATH = os.path.join(BASE_DIR, "recipes.csv")
-
-def load_recipes_csv():
-    ricette = []
-    try:
-        with open(RECIPES_CSV_PATH, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                titolo = (row.get("titolo") or "").strip()
-                ingr   = (row.get("ingredienti") or "").strip()
-                tempo  = (row.get("tempo") or "").strip()
-                descr  = (row.get("descrizione") or "").strip()
-
-                if titolo and ingr:
-                    ingredienti = [
-                        i.strip().lower()
-                        for i in ingr.split(",")
-                        if i.strip()
-                    ]
-
-                    ricette.append({
-                        "titolo": titolo,
-                        "ingredienti": ingredienti,
-                        "tempo": tempo,
-                        "descrizione": descr
-                    })
-    except Exception as e:
-        print("⚠️ Errore lettura recipes.csv:", e)
-
-    return ricette
-
-
-def normalizza(nome):
-    return (nome or "").strip().lower()
-
-# ===============================
-# FLASK BASE
-# ===============================
-app = Flask(__name__)
-CORS(app, resources={r"/ai/*": {"origins": "*"}}, supports_credentials=False)
-
-# Registra le rotte Chat AI solo se disponibili
-if register_chat_routes:
-    register_chat_routes(app)
-else:
-    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
-
-
-# Chiave segreta per chiamate da PHP
-API_KEY = os.getenv(
-    "AI_KEY",
-    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
-)
-
-# =====================================================
-# MAPPA DI EQUIVALENZA INGREDIENTI (AMPLIABILE)
-# =====================================================
 EQUIVALENZE = {
     "pomodoro": ["passata di pomodoro", "polpa di pomodoro", "pomodori pelati", "sugo di pomodoro"],
     "passata di pomodoro": ["pomodoro", "polpa di pomodoro", "pomodori pelati"],
@@ -522,64 +362,58 @@ EQUIVALENZE = {
     "melanzana": ["melanzane"],
 }
 
-
 # ===============================
 # COPERTURA INGREDIENTI DISPENSA
 # ===============================
 def copertura_ingredienti(ricetta_ingr, dispensa_norm):
     """
-    Restituisce la percentuale di ingredienti della ricetta coperti
-    da ciò che c'è in dispensa, usando:
+    Percentuale di ingredienti della ricetta coperti da ciò che ho in dispensa usando:
     - match diretto
-    - equivalenze statiche EQUIVALENZE
-    - forma canonica basata su nutrients.json (canonicalizza_alimento)
-    - fuzzy match di fallback
+    - equivalenze
+    - canonicalizzazione nutrients
+    - fuzzy match
     """
-    # Pre-calcolo forme canoniche della dispensa
     dispensa_canon = [canonicalizza_alimento(d) for d in dispensa_norm]
 
-    def is_match(ing, disp_item, disp_canon):
+    def is_match(ing, disp_raw, disp_canon):
         ing = ing.lower().strip()
-        disp_item = disp_item.lower().strip()
+        disp_raw = disp_raw.lower().strip()
 
-        # Match diretto
-        if ing == disp_item:
+        # diretto
+        if ing == disp_raw:
             return True
 
-        # Match tramite equivalenze "statiche"
-        if ing in EQUIVALENZE and disp_item in EQUIVALENZE[ing]:
+        # equivalenze forward + reverse
+        if ing in EQUIVALENZE and disp_raw in EQUIVALENZE[ing]:
             return True
-
-        # Reverse equivalenza
         for k, lista in EQUIVALENZE.items():
-            if ing == k and disp_item in lista:
+            if ing == k and disp_raw in lista:
                 return True
-            if disp_item == k and ing in lista:
+            if disp_raw == k and ing in lista:
                 return True
 
-        # Match per forma canonica (nutrients + alias)
+        # canonical
         ing_canon = canonicalizza_alimento(ing)
-        if ing_canon and ing_canon == disp_canon:
+        if ing_canon == disp_canon:
             return True
 
-        # Fuzzy match intelligente come ultimo fallback
-        if difflib.SequenceMatcher(None, ing, disp_item).ratio() >= 0.75:
+        # fuzzy
+        if difflib.SequenceMatcher(None, ing, disp_raw).ratio() >= 0.75:
             return True
 
         return False
 
-    tot = len(ricetta_ingr)
-    if tot == 0:
+    if not ricetta_ingr:
         return 0
 
     match = 0
-    for ingr in ricetta_ingr:
+    for ing in ricetta_ingr:
         for d_raw, d_canon in zip(dispensa_norm, dispensa_canon):
-            if is_match(ingr, d_raw, d_canon):
+            if is_match(ing, d_raw, d_canon):
                 match += 1
                 break
 
-    return int((match / tot) * 100)
+    return int((match / len(ricetta_ingr)) * 100)
 
 
 # ===============================
@@ -589,23 +423,32 @@ def assegna_categoria(titolo, ingredienti):
     titolo_l = titolo.lower()
     ing = ",".join(ingredienti)
 
-    if any(k in ing for k in ["pasta", "riso", "cous", "quinoa"]):
+    if any(k in ing for k in ["pasta", "riso", "gnocchi", "cous", "quinoa"]):
         return "Primo"
-    if any(k in ing for k in ["orata", "pollo", "manzo", "maiale", "tacchino", "carne", "pesce"]):
+
+    if any(k in ing for k in ["pollo", "manzo", "maiale", "tacchino", "carne", "bistecca", "orata", "spigola", "pesce", "branzino"]):
         return "Secondo"
-    if "insalata" in titolo_l or "verdure" in titolo_l or "grigliate" in titolo_l:
+
+    if "insalata" in titolo_l or "verdure" in titolo_l or "zucchine" in ing:
         return "Contorno"
+
     return "Ricetta"
 
 
-GIORNI_SETTIMANA = [
-    "Lunedì", "Martedì", "Mercoledì",
-    "Giovedì", "Venerdì", "Sabato", "Domenica"
+# ===============================
+# DEFINIZIONE 5 PASTI GIORNALIERI
+# ===============================
+PASTI_GIORNO = [
+    "Colazione",
+    "Spuntino mattina",
+    "Pranzo",
+    "Spuntino pomeriggio",
+    "Cena"
 ]
 
 
 # ===============================
-# /ai/ricette  → CUORE DEL SISTEMA MENU SETTIMANALE
+# ENDPOINT PRINCIPALE: /ai/ricette
 # ===============================
 @app.route("/ai/ricette", methods=["POST"])
 def ai_ricette():
@@ -617,14 +460,12 @@ def ai_ricette():
     dieta           = data.get("dieta", "Mediterranea")
     cibi_no_raw     = (data.get("cibi_non_graditi") or "").lower()
     dispensa        = data.get("dispensa", [])
-    # il client può chiedere meno di 5, ma non più di 5 pasti "da dietologo"
     max_ricette_req = int(data.get("max_ricette", 5))
     max_ricette     = max(1, min(5, max_ricette_req))
 
-    # Normalizza dispensa
     dispensa_norm = [normalizza(x) for x in dispensa]
 
-    # Carica database CSV
+    # ========== CARICO CSV RECIPES ==========
     csv_path = os.path.join(BASE_DIR, "recipes.csv")
     ricette = []
     if os.path.exists(csv_path):
@@ -637,12 +478,7 @@ def ai_ricette():
                 descr  = (row.get("descrizione") or "").strip()
 
                 if titolo and ingr:
-                    ingredienti = [
-                        i.strip().lower()
-                        for i in ingr.split(",")
-                        if i.strip()
-                    ]
-
+                    ingredienti = [i.strip().lower() for i in ingr.split(",") if i.strip()]
                     ricette.append({
                         "titolo": titolo,
                         "ingredienti": ingredienti,
@@ -650,33 +486,25 @@ def ai_ricette():
                         "descrizione": descr
                     })
 
-    if not ricette_fin:
-        print("⚠️ Nessuna ricetta supera copertura ingredienti")
-            return jsonify({"ricette": ricette_filtrate[:1]})  # fallback: restituiamo una ricetta
-
-    # Filtra per cibi non graditi
+    # ========== FILTRO CIBI NON GRADITI ==========
     cibi_no = [c.strip() for c in cibi_no_raw.split(",") if c.strip()]
+
     ricette_filtrate = []
     for r in ricette:
-        skip = False
-        for no in cibi_no:
-            if no and no in r["descrizione"].lower():
-                skip = True
-                break
-        if not skip:
-            ricette_filtrate.append(r)
+        testo = (r["descrizione"] + " " + r["titolo"]).lower()
+        if any(no in testo for no in cibi_no):
+            continue
+        ricette_filtrate.append(r)
 
     if not ricette_filtrate:
-        ricette_filtrate = ricette
+        ricette_filtrate = ricette  # fallback
 
-    # Calcola copertura ingredienti e categoria "umana"
-    ricette_fin = []
+    # ========== CALCOLO COPERTURA ==========
+    scored = []
     for r in ricette_filtrate:
         cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
-        if cop == 0:
-            continue
 
-        ricette_fin.append({
+        scored.append({
             "titolo": r["titolo"],
             "ingredienti": r["ingredienti"],
             "tempo": r["tempo"],
@@ -685,25 +513,83 @@ def ai_ricette():
             "categoria": assegna_categoria(r["titolo"], r["ingredienti"])
         })
 
-    if not ricette_fin:
-        return jsonify({"ricette": []})
+    # Ordino per copertura (ingredienti disponibili)
+    scored.sort(key=lambda x: x["copertura"], reverse=True)
 
-    # Ordino per copertura (ingredienti già in casa)
-    ricette_fin.sort(key=lambda x: x["copertura"], reverse=True)
+    # ========== FALLBACK SE NESSUNA HA COPERTURA > 0 ==========
+    if all(r["copertura"] == 0 for r in scored):
+        print("⚠️ Fallback attivo: nessuna ricetta trovata con ingredienti in dispensa.")
+        scored = scored[:max_ricette]  # prendo le migliori anche se 0%
 
-    # Tengo solo il numero di pasti richiesto (max 5)
-    ricette_fin = ricette_fin[:max_ricette]
+    # ========== LIMITO A 5 PASTI ==========
+    scored = scored[:max_ricette]
 
-    # Assegno il "ruolo" del pasto (colazione / spuntino / pranzo / spuntino / cena)
-    for idx, r in enumerate(ricette_fin):
-        r["pasto"] = PASTI_GIORNO[idx]
+    # ========== ASSEGNO RUOLO PASTO ==========
+    for i, r in enumerate(scored):
+        if i < len(PASTI_GIORNO):
+            r["pasto"] = PASTI_GIORNO[i]
+        else:
+            r["pasto"] = "Extra"
 
-    return jsonify({"ricette": ricette_fin})
+    return jsonify({"ricette": scored})
+# ===============================
+# FLASK BASE + CORS
+# ===============================
+app = Flask(__name__)
+CORS(app, resources={r"/ai/*": {"origins": "*"}}, supports_credentials=False)
+
+# Registra le rotte Chat AI solo se disponibili
+if 'register_chat_routes' in globals() and register_chat_routes:
+    register_chat_routes(app)
+else:
+    print("⚠️ Chat AI non attiva: register_chat_routes non trovato")
 
 # ===============================
-# /ai/ricette  → RIGENERA UNA SINGOLA RICETTA NELLA CARD
+# API KEY E VERIFICA
 # ===============================
+API_KEY = os.getenv(
+    "AI_KEY",
+    "gofoody_3f8G7pLzR!x2N9tQ@uY5aWsE#jD6kHrV^m1ZbTqL4cP0oFi"
+)
 
+def verifica_chiave():
+    """Controlla l’API KEY nelle chiamate lato app PHP."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    token = auth.replace("Bearer ", "").strip()
+    return token == API_KEY
+
+def require_api_key(f):
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "API_KEY mancante"}), 401
+        token = auth.replace("Bearer ", "").strip()
+        if token != API_KEY:
+            return jsonify({"error": "API_KEY errata"}), 403
+        return f(*args, **kwargs)
+    return wrap
+
+# ===============================
+# HEALTH CHECK
+# ===============================
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "AI online ✅",
+        "message": "Flask funziona correttamente.",
+        "routes": [
+            "/ai/meal", "/ai/nutrizione", "/ai/ricette",
+            "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/ricetta_singola"
+        ],
+        "nutrients_items": len(NUTRIENTS)
+    })
+
+# ===============================
+# /ai/ricetta_singola → rigenera UN solo pasto
+# ===============================
 @app.route("/ai/ricetta_singola", methods=["POST"])
 def ai_ricetta_singola():
     if not verifica_chiave():
@@ -718,10 +604,9 @@ def ai_ricetta_singola():
     if not pasto:
         return jsonify({"error": "Missing 'pasto'"}), 400
 
-    # Normalizza dispensa
     dispensa_norm = [normalizza(x) for x in dispensa]
 
-    # Carico CSV
+    # Carico CSV ricette
     csv_path = os.path.join(BASE_DIR, "recipes.csv")
     ricette = []
     if os.path.exists(csv_path):
@@ -746,24 +631,17 @@ def ai_ricetta_singola():
     cibi_no = [c.strip() for c in cibi_no_raw.split(",") if c.strip()]
     ricette_filtrate = []
     for r in ricette:
-        skip = False
-        for no in cibi_no:
-            if no in r["descrizione"].lower():
-                skip = True
-                break
-        if not skip:
-            ricette_filtrate.append(r)
+        testo = (r["descrizione"] + " " + r["titolo"]).lower()
+        if any(no in testo for no in cibi_no):
+            continue
+        ricette_filtrate.append(r)
 
     if not ricette_filtrate:
         ricette_filtrate = ricette
 
-    # calcolo copertura
     scored = []
     for r in ricette_filtrate:
         cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
-        if cop == 0:
-            continue
-
         scored.append({
             "titolo": r["titolo"],
             "ingredienti": r["ingredienti"],
@@ -774,124 +652,18 @@ def ai_ricetta_singola():
             "pasto": pasto
         })
 
+    # Ordino per copertura
+    scored.sort(key=lambda x: x["copertura"], reverse=True)
+
     if not scored:
         return jsonify({"ricetta": None})
 
-    # Ordino e prendo la migliore
-    scored.sort(key=lambda x: x["copertura"], reverse=True)
-    return jsonify({"ricetta": scored[0]})
-
-    
-    # ===============================
-    # FILTRO DIETA
-    # ===============================
-    for r in tutte:
-        ing = r["ingredienti"]
-
-        if dieta_norm == "vegana":
-            if any(i in [
-                "uova", "latte", "formaggio", "burro", "yogurt",
-                "mozzarella", "tonno", "pesce", "carne", "pollo",
-                "tacchino", "manzo", "maiale"
-            ] for i in ing):
-                continue
-
-        elif dieta_norm == "vegetariana":
-            if any(i in [
-                "carne", "pollo", "tacchino", "maiale", "manzo",
-                "orata", "tonno", "pesce"
-            ] for i in ing):
-                continue
-
-        # Mediterranea → tutti i piatti ok
-        filtrate.append(r)
-
-    # ===============================
-    # FILTRO CIBI NON GRADITI
-    # ===============================
-    if cibi_no_raw.strip():
-        blocchi = [normalizza(x) for x in cibi_no_raw.split(",") if x.strip()]
-
-        filtrate = [
-            r for r in filtrate
-            if not any(
-                b in r["titolo"].lower() or b in ",".join(r["ingredienti"])
-                for b in blocchi
-            )
-        ]
-
-    # Fallback → almeno qualcosa
-    if not filtrate:
-        filtrate = tutte
-
-    # ===============================
-    # CALCOLO COPERTURA DISPENSA + CATEGORIA
-    # ===============================
-    ricette_fin = []
-    for r in filtrate:
-        cop = copertura_ingredienti(r["ingredienti"], dispensa_norm)
-
-        ricette_fin.append({
-            "titolo": r["titolo"],
-            "ingredienti": r["ingredienti"],
-            "tempo": r["tempo"],
-            "descrizione": r["descrizione"],
-            "copertura": cop,
-            "categoria": assegna_categoria(r["titolo"], r["ingredienti"])
-        })
-
-    # Ordino per copertura (ingredienti disponibili)
-    ricette_fin.sort(key=lambda x: x["copertura"], reverse=True)
-
-    # Prendo max N
-    ricette_fin = ricette_fin[:max_ricette]
-
-    # ===============================
-    # ASSEGNAZIONE GIORNI DELLA SETTIMANA
-    # ===============================
-    giorni = GIORNI_SETTIMANA.copy()
-    random.shuffle(giorni)
-
-    for i, r in enumerate(ricette_fin):
-        r["giorno"] = giorni[i % len(giorni)]
-
-    return jsonify({"ricette": ricette_fin})
-
+    # se tutte copertura 0, prendo comunque la migliore
+    scelta = scored[0]
+    return jsonify({"ricetta": scelta})
 
 # ===============================
-# DECORATORE AUTENTICAZIONE
-# ===============================
-def require_api_key(f):
-    @wraps(f)
-    def wrap(*args, **kwargs):
-        auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
-            return jsonify({"error": "API_KEY mancante"}), 401
-        token = auth.replace("Bearer ", "").strip()
-        if token != API_KEY:
-            return jsonify({"error": "API_KEY errata"}), 403
-        return f(*args, **kwargs)
-    return wrap
-
-
-# ===============================
-# HEALTH CHECK
-# ===============================
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({
-        "status": "AI online ✅",
-        "message": "Flask funziona correttamente.",
-        "routes": [
-            "/ai/meal", "/ai/nutrizione", "/ai/ricette",
-            "/ai/procedimento", "/ai/coach", "/ai/dispensa", "/ai/chat"
-        ],
-        "nutrients_items": len(NUTRIENTS)
-    })
-
-
-# ===============================
-# ENDPOINT MEAL (calcolo kcal piatto)
+# /ai/meal → tasto "Ho mangiato qualcosa"
 # ===============================
 @app.route("/ai/meal", methods=["POST"])
 @require_api_key
@@ -906,6 +678,45 @@ def ai_meal():
         return jsonify({"error": "ALIMENTO_VUOTO"}), 400
 
     # 1) Provo a trovare ricetta complessa (italian_recipes / user_recipes)
+    def trova_ricetta(alimento_raw):
+        alimento = normalizza_nome_piatto(alimento_raw)
+        if not alimento:
+            return None, None
+
+        slug = slugify_name(alimento)
+
+        # se è un alimento base in NUTRIENTS → niente ricetta complessa
+        if slug in NUTRIENTS:
+            return None, None
+
+        sorgenti = [("user", USER_RECIPES), ("base", ITALIAN_RECIPES)]
+
+        # match diretto
+        for src_name, DB in sorgenti:
+            if slug in DB:
+                return DB[slug], src_name
+
+        # match parziale
+        for src_name, DB in sorgenti:
+            for k in DB:
+                if alimento in k.replace("_", " "):
+                    return DB[k], src_name
+
+        # fuzzy
+        best, best_score, best_src = None, 0.0, None
+        for src_name, DB in sorgenti:
+            for k in DB:
+                score = difflib.SequenceMatcher(
+                    None, alimento, k.replace("_", " ")
+                ).ratio()
+                if score > best_score:
+                    best_score, best, best_src = score, DB[k], src_name
+
+        if best and best_score >= 0.75:
+            return best, best_src or "fuzzy"
+
+        return None, None
+
     ricetta, sorgente = trova_ricetta(alimento_raw)
     nuova = False
 
@@ -956,9 +767,8 @@ def ai_meal():
         "kcal_totali": round(kcal_tot, 1)
     })
 
-
 # ===============================
-# ENDPOINT NUTRIZIONE (BMI)
+# /ai/nutrizione → BMI
 # ===============================
 @app.route("/ai/nutrizione", methods=["POST"])
 @require_api_key
@@ -973,9 +783,8 @@ def ai_nutrizione():
     risultato = calcola_bmi(peso, altezza, eta, sesso)
     return jsonify(risultato)
 
-
 # ===============================
-# ENDPOINT DISPENSA (AVVISI ANTI-SPRECO)
+# /ai/dispensa → avvisi anti-spreco
 # ===============================
 @app.route("/ai/dispensa", methods=["POST"])
 @require_api_key
@@ -984,3 +793,33 @@ def ai_dispensa():
     dispensa = data.get("dispensa", [])
     risultati = suggerisci_usi(dispensa)
     return jsonify({"alert": risultati})
+
+# ===============================
+# /ai/procedimento → testo ricetta step-by-step
+# ===============================
+@app.route("/ai/procedimento", methods=["POST"])
+@require_api_key
+def ai_procedimento():
+    data = request.get_json(force=True)
+    titolo = data.get("titolo", "") or ""
+    ingredienti = data.get("ingredienti", []) or []
+    dieta = data.get("dieta", "") or ""
+
+    if not isinstance(ingredienti, list):
+        ingredienti = [str(ingredienti)]
+
+    testo = genera_procedimento(titolo, ingredienti, dieta)
+    return jsonify({"procedimento": testo})
+
+# ===============================
+# /ai/coach (opzionale, se usi il coach motivazionale)
+# ===============================
+@app.route("/ai/coach", methods=["POST"])
+@require_api_key
+def ai_coach():
+    data = request.get_json(force=True)
+    bmi    = float(data.get("bmi", 0))
+    dieta  = data.get("dieta", "bilanciata")
+    trend  = data.get("trend", "stabile")
+    msg = genera_messaggio(bmi, dieta, trend)
+    return jsonify({"messaggio": msg})
