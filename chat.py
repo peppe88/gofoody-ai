@@ -1,247 +1,156 @@
 # ================================================================
-#  GoFoody AI - chat.py (Versione B: avanzata + MySQL Aruba)
-#  - Usa ai_intenti per capire la domanda
-#  - Usa ai_fatti_utente per personalizzare la risposta
-#  - Non inventa ricette, guida l’utente nell'app
-#  - Se MySQL non è disponibile → fallback elegante
+#  GoFoody AI - chat.py (stabile, intelligente, fallback automatico)
 # ================================================================
 
 from flask import request, jsonify
 import random
 import difflib
 
-# ================================================================
-# IMPORT MYSQL (Render può non averlo)
-# ================================================================
+# ---------------------------------------------------
+# TENTATIVO IMPORT + TEST CONNESSIONE MYSQL
+# ---------------------------------------------------
+
+MYSQL_AVAILABLE = False
+mysql = None
+
 try:
     import mysql.connector
-    MYSQL_AVAILABLE = True
-except ImportError:
-    MYSQL_AVAILABLE = False
-    print("⚠️ mysql.connector NON disponibile → la chat userà il fallback.")
+    mysql = mysql.connector
+    # tentativo di connessione reale a Aruba
+    try:
+        test_conn = mysql.connect(
+            host="31.11.39.251",
+            user="Sql1897455",
+            password="Peppino_88",
+            database="Sql1897455_2",
+            port=3306,
+            connection_timeout=2
+        )
+        test_conn.close()
+        MYSQL_AVAILABLE = True
+        print("✅ MySQL Aruba raggiungibile: modalità avanzata attiva")
+    except:
+        print("⚠️ MySQL non raggiungibile: attivo fallback locale")
+        MYSQL_AVAILABLE = False
 
-# ================================================================
-# CONFIG DB ARUBA
-# ================================================================
+except ImportError:
+    print("⚠️ mysql.connector non disponibile: fallback attivo")
+    MYSQL_AVAILABLE = False
+
+
+# ---------------------------------------------------
+# CONFIG DATABASE
+# ---------------------------------------------------
+
 DB_CONFIG = {
     "host": "31.11.39.251",
     "user": "Sql1897455",
     "password": "Peppino_88",
     "database": "Sql1897455_2",
-    "port": 3306,
+    "port": 3306
 }
 
-def get_db_connection():
-    """Crea connessione MySQL se disponibile."""
+def get_db():
     if not MYSQL_AVAILABLE:
         return None
     try:
-        return mysql.connector.connect(**DB_CONFIG)
-    except Exception as e:
-        print("❌ Errore connessione MySQL:", e)
+        return mysql.connect(**DB_CONFIG)
+    except:
         return None
 
 
-# ================================================================
-# UTIL PER INTENTI E FATTI UTENTE
-# ================================================================
-def parse_examples(text):
-    """Converte esempi_domande/esempi_risposte in lista pulita."""
-    if not text:
-        return []
-    raw = text.replace("\r", "\n")
-    parts = []
-    for line in raw.split("\n"):
-        if "||" in line:
-            parts.extend(line.split("||"))
-        elif ";" in line:
-            parts.extend(line.split(";"))
-        else:
-            parts.append(line)
-    return [p.strip(" -•\t ") for p in parts if p.strip()]
+# ---------------------------------------------------
+# FALLBACK (come nel tuo file funzionante)
+# ---------------------------------------------------
 
+def fallback_response(prompt):
+    p = prompt.lower()
+
+    if "ciao" in p or "salve" in p:
+        return "Ciao 👋! Sono GoFoody AI. Come posso aiutarti oggi?"
+
+    if "ricetta" in p:
+        return "Dimmi cosa hai in dispensa e ti suggerisco una ricetta 🍝"
+
+    if "dispensa" in p:
+        return "Posso dirti cosa consumare prima per evitare sprechi 📦"
+
+    if "dieta" in p:
+        return "Vuoi un consiglio per la tua dieta? 🥗"
+
+    fallback = [
+        "Interessante, dimmi di più 😄",
+        "Vuoi un aiuto su calorie, dispensa o ricette giornaliere?",
+        "Sono qui per aiutarti nella cucina di tutti i giorni 👨‍🍳"
+    ]
+    return random.choice(fallback)
+
+
+# ---------------------------------------------------
+# RISPOSTE AVANZATE BASATE SU INTENTI FROM DB
+# ---------------------------------------------------
 
 def load_intents():
-    """Carica gli intenti attivi dal DB."""
-    conn = get_db_connection()
+    conn = get_db()
     if not conn:
         return []
-
     try:
         cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT * FROM ai_intenti WHERE attivo = 1")
+        cur.execute("SELECT * FROM ai_intenti WHERE attivo=1")
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print("⚠️ Errore lettura ai_intenti:", e)
-        return []
-
-    intents = []
-    for r in rows:
-        intents.append({
-            "id": r["id"],
-            "nome": r["nome"],
-            "descrizione": r.get("descrizione", ""),
-            "categoria": r.get("categoria", ""),
-            "domande": parse_examples(r.get("esempi_domande")),
-            "risposte": parse_examples(r.get("esempi_risposte")),
-        })
-    return intents
-
-
-def load_user_facts(id_utente, limit=20):
-    """Carica i fatti utente ordinati per importanza e recenza."""
-    if not id_utente:
-        return []
-
-    conn = get_db_connection()
-    if not conn:
-        return []
-
-    try:
-        cur = conn.cursor(dictionary=True)
-        cur.execute("""
-            SELECT tipo, valore, importance
-            FROM ai_fatti_utente
-            WHERE id_utente = %s
-            ORDER BY importance DESC, created_at DESC
-            LIMIT %s
-        """, (id_utente, limit))
-        rows = cur.fetchall()
-        cur.close()
         conn.close()
         return rows
-    except Exception as e:
-        print("⚠️ Errore lettura ai_fatti_utente:", e)
+    except:
         return []
 
 
 def match_intent(prompt, intents):
-    """Trova l’intento più simile al messaggio dell'utente."""
     p = prompt.lower()
+    best = None
     best_score = 0
-    best_intent = None
 
     for intent in intents:
-        score = 0
-
-        # bonus se il nome dell’intento è contenuto nel messaggio
-        if intent["nome"].lower() in p:
-            score = 0.95
-
-        for esempio in intent["domande"]:
-            e = esempio.lower()
-            if e in p or p in e:
-                local = 0.9
-            else:
-                local = difflib.SequenceMatcher(None, p, e).ratio()
-            if local > score:
-                score = local
-
-        if score > best_score:
-            best_score = score
-            best_intent = intent
+        for example in (intent["esempi_domande"] or "").split("\n"):
+            s = difflib.SequenceMatcher(None, p, example.lower()).ratio()
+            if s > best_score:
+                best_score = s
+                best = intent
 
     if best_score < 0.45:
-        return None, best_score
+        return None
 
-    return best_intent, best_score
-
-
-def build_personalization_snippet(facts):
-    """Usa i fatti utente per creare una frase personalizzata."""
-    if not facts:
-        return ""
-
-    dieta = None
-    obiettivo = None
-    allergie = None
-
-    for f in facts:
-        tipo = f["tipo"].lower()
-        val = f["valore"]
-
-        if "dieta" in tipo and not dieta:
-            dieta = val
-        elif ("obiettivo" in tipo or "goal" in tipo) and not obiettivo:
-            obiettivo = val
-        elif ("allerg" in tipo or "intoller" in tipo) and not allergie:
-            allergie = val
-
-    parts = []
-    if dieta: parts.append(f"dieta <strong>{dieta}</strong>")
-    if obiettivo: parts.append(f"obiettivo <strong>{obiettivo}</strong>")
-    if allergie: parts.append(f"allergie <strong>{allergie}</strong>")
-
-    if not parts:
-        return ""
-
-    return "Piccolo promemoria su di te: " + ", ".join(parts) + "."
+    return best
 
 
-def generate_answer_from_intent(intent, facts):
-    """Costruisce la risposta finale completa."""
-    base_list = intent["risposte"]
-    if base_list:
-        risposta = random.choice(base_list)
-    else:
-        risposta = f"Posso aiutarti nella sezione {intent['nome']} di GoFoody 😊"
-
-    pers = build_personalization_snippet(facts)
-    if pers:
-        risposta += "<br><br>" + pers
-
-    risposta += "<br><br>Se vuoi ti guido passo passo 😉"
-    return risposta
+def answer_from_intent(intent):
+    if not intent["esempi_risposte"]:
+        return intent["descrizione"] or "Posso aiutarti 😊"
+    risposte = intent["esempi_risposte"].split("\n")
+    return random.choice(risposte)
 
 
-# ================================================================
-# FALLBACK SE DB NON DISPONIBILE
-# ================================================================
-def fallback_chat_response(prompt):
-    p = prompt.lower()
+# ---------------------------------------------------
+# ROUTE PRINCIPALE CHAT
+# ---------------------------------------------------
 
-    if "ciao" in p:
-        return "Ciao 👋! Sono GoFoody AI. Posso aiutarti a usare l’app!"
-
-    generic = [
-        "Dimmi pure cosa desideri fare in GoFoody e ti guido io 😊",
-        "Vuoi gestire la dispensa, controllare le calorie o trovare ricette giornaliere?",
-        "Sono qui per aiutarti a usare GoFoody al meglio 💚"
-    ]
-    return random.choice(generic)
-
-
-# ================================================================
-# REGISTRAZIONE ENDPOINT CHAT
-# ================================================================
 def register_chat_routes(app):
 
     @app.route("/ai/chat", methods=["POST"])
-    def ai_chat():
+    def chat_ai():
         data = request.get_json(force=True, silent=True) or {}
         prompt = (data.get("prompt") or "").strip()
-        id_utente = int(data.get("id_utente") or 0)
 
         if not prompt:
-            return jsonify({"risposta": "Scrivimi un messaggio 😊"})
+            return jsonify({"risposta": "Scrivimi qualcosa 😊"})
 
-        # Se DB disponibile → AI completa
+        # modalità avanzata
         if MYSQL_AVAILABLE:
             intents = load_intents()
-            facts = load_user_facts(id_utente)
-            intent, score = match_intent(prompt, intents)
+            if intents:
+                match = match_intent(prompt, intents)
+                if match:
+                    risposta = answer_from_intent(match)
+                    return jsonify({"risposta": risposta})
 
-            print(f"🔍 MATCH → utente={id_utente}, intento={intent['nome'] if intent else 'None'}, score={score}")
-
-            if intent:
-                risposta = generate_answer_from_intent(intent, facts)
-            else:
-                risposta = fallback_chat_response(prompt)
-
-        else:
-            # No MySQL → fallback
-            risposta = fallback_chat_response(prompt)
-
-        return jsonify({"risposta": risposta})
+        # fallback sicuro (identico al tuo file funzionante)
+        return jsonify({"risposta": fallback_response(prompt)})
